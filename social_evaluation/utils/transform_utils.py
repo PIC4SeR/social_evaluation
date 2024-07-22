@@ -105,3 +105,55 @@ def _find_ordered_sequence_between_frames(df, frame_id, child_frame_id, time):
         )
         current_frame = predecessors[current_frame]
     return ordered_sequence[::-1]
+
+
+def compute_odometry_data(df, period=1, max_velocity=2, alpha=0.1):
+    # remove duplicate rows on the time column
+    df = df.drop_duplicates(subset=["time"])
+
+    # add columns to the dataframe that contain the velocity of the robot
+
+    df.loc[:, "velocity_x"] = df["position_x"].diff(periods=period)
+    df.loc[:, "velocity_y"] = df["position_y"].diff(periods=period)
+    df.loc[:, "velocity_z"] = df["position_z"].diff(periods=period)
+
+    dt = df.time.diff(periods=period)
+    dt[dt < 1e-3] = np.nan
+
+    # rotate the velocity vector to the robot's frame
+
+    df_vel = df.apply(
+        lambda x: pd.Series(
+            np.array([x["velocity_x"], x["velocity_y"], x["velocity_z"]])
+            @ compose_matrix(angles=(x["roll"], x["pitch"], x["yaw"]))[:3, :3],
+            index=["velocity_x", "velocity_y", "velocity_z"],
+        ),
+        axis=1,
+    )
+
+    df["velocity_x"] = df_vel["velocity_x"] / dt
+    df["velocity_y"] = df_vel["velocity_y"] / dt
+    df["velocity_z"] = df_vel["velocity_z"] / dt
+
+    df[df["velocity_x"].abs() > max_velocity] = np.nan
+    df[df["velocity_y"].abs() > max_velocity] = np.nan
+    df[df["velocity_z"].abs() > max_velocity] = np.nan
+
+    # replace the zeros in the velocity columns with the interpolation of the previous and next values
+    df["velocity_x"] = (
+        df.loc[:, "velocity_x"].replace(0, np.nan).interpolate("spline", order=3)
+    )
+    df["velocity_y"] = (
+        df.loc[:, "velocity_y"].replace(0, np.nan).interpolate("spline", order=3)
+    )
+    df["velocity_z"] = (
+        df.loc[:, "velocity_z"].replace(0, np.nan).interpolate("spline", order=3)
+    )
+
+    # smooth the velocity data using an exponential moving average filter
+
+    df["velocity_x"] = df["velocity_x"].ewm(alpha=alpha).mean()
+    df["velocity_y"] = df["velocity_y"].ewm(alpha=alpha).mean()
+    df["velocity_z"] = df["velocity_z"].ewm(alpha=alpha).mean()
+
+    return df, dt
