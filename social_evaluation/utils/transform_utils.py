@@ -12,9 +12,13 @@ from tf_transformations import (
     concatenate_matrices,
 )
 import numpy as np
+from typing import List, Tuple, Union, Dict
 
 
-def get_transform_between_frames(df, frame_id, child_frame_id, time):
+def get_transform_between_frames(
+    df: pd.DataFrame, frame_id: str, child_frame_id: str, time: float
+) -> np.ndarray:
+    """Get the transform between two frames at a given time in the tf tree."""
     if frame_id == child_frame_id:
         warning("frame_id and child_frame_id are the same.")
         return np.eye(4)
@@ -30,7 +34,8 @@ def get_transform_between_frames(df, frame_id, child_frame_id, time):
     )
 
 
-def get_pose_data_from_transform(transform):
+def get_pose_data_from_transform(transform: np.ndarray) -> pd.Series:
+    """Get the position and orientation data from a transform matrix."""
     _, _, rotation, translation, _ = decompose_matrix(transform)
     quaternion_rotation = quaternion_from_euler(*rotation)
     return pd.Series(
@@ -49,7 +54,10 @@ def get_pose_data_from_transform(transform):
     )
 
 
-def find_ordered_sequence_between_frames(df, frame_id, child_frame_id, time):
+def find_ordered_sequence_between_frames(
+    df: pd.DataFrame, frame_id: str, child_frame_id: str, time: float
+) -> List[Dict[str, Union[str, np.ndarray]]]:
+    """Find the ordered sequence of transforms between two frames at a given time in the tf tree."""
     if (
         ordered_sequence := _find_ordered_sequence_between_frames(
             df, frame_id, child_frame_id, time
@@ -65,8 +73,10 @@ def find_ordered_sequence_between_frames(df, frame_id, child_frame_id, time):
     ]
 
 
-def _invert_transform_data(transform):
-    # invert the transform data from child_frame_id to frame_id
+def _invert_transform_data(
+    transform: Dict[str, Union[str, np.ndarray]]
+) -> Dict[str, Union[str, np.ndarray]]:
+    """Invert the transform data from child_frame_id to frame_id"""
     transform["transform"] = inverse_matrix(transform["transform"])
     transform["frame_id"], transform["child_frame_id"] = (
         transform["child_frame_id"],
@@ -75,18 +85,21 @@ def _invert_transform_data(transform):
     return transform
 
 
-def _find_ordered_sequence_between_frames(df, frame_id, child_frame_id, time):
-    # use an Dijkstra's algorithm to find the ordered sequence of transforms between frame_id and child_frame_id
-    # at the given time in the tf tree
+def _find_ordered_sequence_between_frames(
+    df: pd.DataFrame, frame_id: str, child_frame_id: str, time: float
+) -> List[Dict[str, Union[str, np.ndarray]]]:
+    """
+    Find the ordered sequence of transforms between two frames at a given time in the tf tree.
+    use an Dijkstra's algorithm to find the ordered sequence of transforms between frame_id and child_frame_id
+    """
     df = df[df["time"] == time]
-    # find the ordered sequence of transforms between frame_id and child_frame_id
     ordered_sequence = []
     visited = set()
     queue = [(frame_id, None)]
     predecessors = {}
 
     while queue:
-        current_frame, parent_frame = queue.pop(0)
+        current_frame, _ = queue.pop(0)
         if current_frame == child_frame_id:
             break
         visited.add(current_frame)
@@ -107,15 +120,22 @@ def _find_ordered_sequence_between_frames(df, frame_id, child_frame_id, time):
     return ordered_sequence[::-1]
 
 
-def compute_odometry_data(df, period=1, max_velocity=2, alpha=0.1):
+def compute_odometry_data(
+    df: pd.DataFrame,
+    period: int = 1,
+    max_velocity: float = 2.0,
+    max_angular_vel: float = 1.0,
+    alpha: float = 0.1,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute the linear and angular velocity from successive transforms"""
     # remove duplicate rows on the time column
     df = df.drop_duplicates(subset=["time"])
 
     # add columns to the dataframe that contain the velocity of the robot
 
-    df.loc[:, "velocity_x"] = df["position_x"].diff(periods=period)
-    df.loc[:, "velocity_y"] = df["position_y"].diff(periods=period)
-    df.loc[:, "velocity_z"] = df["position_z"].diff(periods=period)
+    df["velocity_x"] = df["position_x"].diff(periods=period)
+    df["velocity_y"] = df["position_y"].diff(periods=period)
+    df["velocity_z"] = df["position_z"].diff(periods=period)
 
     dt = df.time.diff(periods=period)
     dt[dt < 1e-3] = np.nan
@@ -155,5 +175,67 @@ def compute_odometry_data(df, period=1, max_velocity=2, alpha=0.1):
     df["velocity_x"] = df["velocity_x"].ewm(alpha=alpha).mean()
     df["velocity_y"] = df["velocity_y"].ewm(alpha=alpha).mean()
     df["velocity_z"] = df["velocity_z"].ewm(alpha=alpha).mean()
+
+    # add columns to the dataframe that contain the angular velocity of the robot
+
+    df["angular_velocity_x"] = (
+        2.0
+        / dt
+        * (
+            df["qw"].shift(periods=period) * df["qx"]
+            - df["qx"].shift(periods=period) * df["qw"]
+            - df["qy"].shift(periods=period) * df["qz"]
+            + df["qz"].shift(periods=period) * df["qy"]
+        )
+    )
+
+    df["angular_velocity_y"] = (
+        2.0
+        / dt
+        * (
+            df["qw"].shift(periods=period) * df["qy"]
+            + df["qx"].shift(periods=period) * df["qz"]
+            - df["qy"].shift(periods=period) * df["qw"]
+            - df["qz"].shift(periods=period) * df["qx"]
+        )
+    )
+
+    df["angular_velocity_z"] = (
+        2.0
+        / dt
+        * (
+            df["qw"].shift(periods=period) * df["qz"]
+            - df["qx"].shift(periods=period) * df["qy"]
+            + df["qy"].shift(periods=period) * df["qx"]
+            - df["qz"].shift(periods=period) * df["qw"]
+        )
+    )
+
+    df[df["angular_velocity_x"].abs() > max_angular_vel] = np.nan
+    df[df["angular_velocity_y"].abs() > max_angular_vel] = np.nan
+    df[df["angular_velocity_z"].abs() > max_angular_vel] = np.nan
+
+    # replace the zeros in the angular velocity columns with the interpolation of the previous and next values
+    df["angular_velocity_x"] = (
+        df.loc[:, "angular_velocity_x"]
+        .replace(0, np.nan)
+        .interpolate("spline", order=3)
+    )
+    df["angular_velocity_y"] = (
+        df.loc[:, "angular_velocity_y"]
+        .replace(0, np.nan)
+        .interpolate("spline", order=3)
+    )
+    df["angular_velocity_z"] = (
+        df.loc[:, "angular_velocity_z"]
+        .replace(0, np.nan)
+        .interpolate("spline", order=3)
+    )
+
+    # smooth the angular velocity data using an exponential moving average filter
+
+    df["angular_velocity_x"] = df["angular_velocity_x"].ewm(alpha=alpha).mean()
+    df["angular_velocity_y"] = df["angular_velocity_y"].ewm(alpha=alpha).mean()
+    df["angular_velocity_z"] = df["angular_velocity_z"].ewm(alpha=alpha).mean()
 
     return df, dt

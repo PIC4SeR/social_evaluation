@@ -15,16 +15,19 @@ from nav_msgs.msg import Odometry
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
+from typing import List, Tuple, Union, Dict, Type
+
+MsgType = Union[Odometry, People, LaserScan, PoseStamped, TFMessage]
 
 
-def get_bag_path(experiment, algorithm, base_path, index):
+def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) -> Path:
     model_path = base_path + "/" + experiment + "/" + algorithm
     model_path = Path(model_path)
     bag_path = os.path.join(model_path, f"scenario_{index}", f"scenario_{index}_0.db3")
     return bag_path
 
 
-def get_rosbag_options(path, serialization_format="cdr"):
+def get_rosbag_options(path: Path, serialization_format: str = "cdr") -> Tuple:
     storage_options = rosbag2_py.StorageOptions(uri=path, storage_id="sqlite3")
 
     converter_options = rosbag2_py.ConverterOptions(
@@ -34,7 +37,7 @@ def get_rosbag_options(path, serialization_format="cdr"):
     return storage_options, converter_options
 
 
-def get_messages_from_bag(bag_path, topic):
+def get_messages_from_bag(bag_path: Path, topic: str) -> List[MsgType]:
     storage_options, converter_options = get_rosbag_options(bag_path)
     bag = rosbag2_py.SequentialReader()
     bag.open(storage_options, converter_options)
@@ -51,7 +54,7 @@ def get_messages_from_bag(bag_path, topic):
     return messages
 
 
-def odometry_to_df(odometry_msgs):
+def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
     series_list = []
     for msg in odometry_msgs:
         time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -98,7 +101,7 @@ def odometry_to_df(odometry_msgs):
     return df
 
 
-def person_to_df(person_msgs):
+def person_to_df(person_msgs: List[Person]) -> pd.DataFrame:
     series_list = []
     for msg in person_msgs:
         name = msg.name
@@ -125,7 +128,7 @@ def person_to_df(person_msgs):
     return df
 
 
-def people_to_df(people_msgs):
+def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
     people_names = set()
     for msg in people_msgs:
         for person in msg.people:
@@ -141,6 +144,8 @@ def people_to_df(people_msgs):
                 {
                     "name": person.name,
                     "id": tags["id"],
+                    "group": tags["group_id"],
+                    "behaviour": tags["behaviour"],
                     "position_x": person.position.x,
                     "position_y": person.position.y,
                     "yaw": person.position.z,
@@ -159,7 +164,7 @@ def people_to_df(people_msgs):
     return df
 
 
-def laser_scan_to_df(laser_scan_msgs):
+def laser_scan_to_df(laser_scan_msgs: List[LaserScan]) -> pd.DataFrame:
     series_list = []
     for msg in laser_scan_msgs:
         time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -192,7 +197,7 @@ def laser_scan_to_df(laser_scan_msgs):
     return df
 
 
-def tf2_messages_to_df(tf_messages):
+def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
     transforms_set = set()
     for msg in tf_messages:
         for transform_stamped in msg.transforms:
@@ -253,7 +258,26 @@ def tf2_messages_to_df(tf_messages):
     return df
 
 
-def get_goal_position(pose_stamped_msgs):
+def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
+    df_person = df[["time", person_name]]
+    df_person = df_person.dropna()
+    df_person = df_person.reset_index(drop=True)
+    df_person["position_x"] = df_person[person_name].apply(lambda x: x["position_x"])
+    df_person["position_y"] = df_person[person_name].apply(lambda x: x["position_y"])
+    df_person["yaw"] = df_person[person_name].apply(lambda x: x["yaw"])
+    df_person["velocity_x"] = df_person[person_name].apply(lambda x: x["velocity_x"])
+    df_person["velocity_y"] = df_person[person_name].apply(lambda x: x["velocity_y"])
+    df_person["angular_velocity_z"] = df_person[person_name].apply(
+        lambda x: x["angular_velocity_z"]
+    )
+    df_person["behaviour"] = df_person[person_name].apply(lambda x: x["behaviour"])
+    df_person["group"] = df_person[person_name].apply(lambda x: x["group"])
+    df_person["id"] = df_person[person_name].apply(lambda x: x["id"])
+    df_person.drop(columns=[person_name], inplace=True)
+    return df_person
+
+
+def get_goal_position(pose_stamped_msgs: List[PoseStamped]) -> Tuple[float, float]:
     goals = {
         (pose_stamped_msg.pose.position.x, pose_stamped_msg.pose.position.y)
         for pose_stamped_msg in pose_stamped_msgs
@@ -263,7 +287,9 @@ def get_goal_position(pose_stamped_msgs):
     return goals.pop()
 
 
-def time_goal_reached(df, goal_position, threshold=0.5):
+def time_goal_reached(
+    df: pd.DataFrame, goal_position: Tuple[float, float], threshold: float = 0.5
+) -> float:
     df["distance_to_goal"] = (
         (df["x"] - goal_position[0]) ** 2 + (df["y"] - goal_position[1]) ** 2
     ) ** 0.5
@@ -272,13 +298,17 @@ def time_goal_reached(df, goal_position, threshold=0.5):
         return df[df["distance_to_goal"] < threshold].iloc[0]["time"]
 
 
-def filter_df_by_time(df, start_time=-np.inf, end_time=np.inf):
+def filter_df_by_time(
+    df: pd.DataFrame, start_time: float = -np.inf, end_time: float = np.inf
+) -> pd.DataFrame:
     return df[(df["time"] >= start_time) & (df["time"] <= end_time)]
 
 
-def get_last_row_in_interval(df, start_time, end_time):
+def get_last_row_in_interval(
+    df: pd.DataFrame, start_time: float, end_time: float
+) -> pd.DataFrame:
     return filter_df_by_time(df, start_time, end_time).tail(1)
 
 
-def filter_columns(df, columns):
+def filter_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
     return df[columns]
