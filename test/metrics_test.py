@@ -1,0 +1,79 @@
+from social_evaluation.utils.metrics import get_metrics
+import pandas as pd
+import pytest
+
+
+@pytest.fixture
+def quaternion():
+    return [0, 0, 0, 1]
+
+
+@pytest.fixture
+def df_robot():
+    """Fixture for the robot dataframe
+    it has the following columns:
+    - time
+    - position_x
+    - position_y
+    - position_z
+    - qx
+    - qy
+    - qz
+    - qw
+    - roll
+    - pitch
+    - yaw
+    - velocity_x
+    - velocity_y
+    - velocity_z
+    - angular_velocity_x
+    - angular_velocity_y
+    - angular_velocity_z
+    """
+
+    return pd.DataFrame(
+        {
+            "time": [0.0, 1.0, 2.0, 3.0],
+            "position_x": [0.0, 1.0, 2.0, 3.0],
+            "position_y": [0.0, 1.0, 2.0, 3.0],
+            "position_z": [0.0, 1.0, 2.0, 3.0],
+            "qx": [0.0, 1.0, 2.0, 3.0],
+            "qy": [0.0, 1.0, 2.0, 3.0],
+            "qz": [0.0, 1.0, 2.0, 3.0],
+            "qw": [0.0, 1.0, 2.0, 3.0],
+            "roll": [0.0, 1.0, 2.0, 3.0],
+            "pitch": [0.0, 1.0, 2.0, 3.0],
+            "yaw": [0.0, 1.0, 2.0, 3.0],
+            "velocity_x": [0.0, 1.0, 2.0, 3.0],
+            "velocity_y": [0.0, 1.0, 2.0, 3.0],
+            "velocity_z": [0.0, 1.0, 2.0, 3.0],
+            "angular_velocity_x": [0.0, 1.0, 2.0, 3.0],
+            "angular_velocity_y": [0.0, 1.0, 2.0, 3.0],
+            "angular_velocity_z": [0.0, 1.0, 2.0, 3.0],
+        }
+    )
+
+
+@pytest.fixture
+def df_human():
+    """Fixture for the human dataframe
+    it has the following columns:
+    - time
+    - position_x
+    - position_y
+    - yaw
+    - velocity_x
+    - velocity_y
+    - angular_velocity_z
+    """
+    return pd.DataFrame(
+        {
+            "time": [0.0, 1.0, 2.0, 3.0],
+            "position_x": [0.0, 1.0, 2.0, 3.0],
+            "position_y": [0.0, 1.0, 2.0, 3.0],
+            "yaw": [0.0, 1.0, 2.0, 3.0],
+            "velocity_x": [0.0, 1.0, 2.0, 3.0],
+            "velocity_y": [0.0, 1.0, 2.0, 3.0],
+            "angular_velocity_z": [0.0, 1.0, 2.0, 3.0],
+        }
+    )

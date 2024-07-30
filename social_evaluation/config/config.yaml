@@ -1,0 +1,22 @@
+topics:
+  - "/vicon/odom"
+  - "/vicon/people"
+  - "/tf_static"
+  - "/tf"
+  - "/objective"
+experiment_names: 
+  - "overtaking"
+algorithms:
+  - "DWA"
+experiment_ids:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+base_path: /home/andrea/workspaces/appl_ws/bags
+transforms:
+  - map_to_base_link:
+      child_frame_id: "base_link"
+      frame_id: "map"
+

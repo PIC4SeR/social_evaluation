@@ -37,7 +37,7 @@ def get_rosbag_options(path: Path, serialization_format: str = "cdr") -> Tuple:
     return storage_options, converter_options
 
 
-def get_messages_from_bag(bag_path: Path, topic: str) -> List[MsgType]:
+def get_messages_from_bag(bag_path: Path, topic: str) -> Tuple[List[MsgType], Type]:
     storage_options, converter_options = get_rosbag_options(bag_path)
     bag = rosbag2_py.SequentialReader()
     bag.open(storage_options, converter_options)
@@ -51,7 +51,7 @@ def get_messages_from_bag(bag_path: Path, topic: str) -> List[MsgType]:
         topic_name, data, t = bag.read_next()
         if topic_name == topic:
             messages.append(deserialize_message(data, get_message(type_map[topic])))
-    return messages
+    return messages, type_map[topic]
 
 
 def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
@@ -77,9 +77,9 @@ def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
             pd.Series(
                 {
                     "time": time,
-                    "x": x,
-                    "y": y,
-                    "z": z,
+                    "position_x": x,
+                    "position_y": y,
+                    "position_z": z,
                     "qx": qx,
                     "qy": qy,
                     "qz": qz,
@@ -93,33 +93,6 @@ def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
                     "velocity_z": velocity_z,
                     "angular_velocity_x": angular_velocity_x,
                     "angular_velocity_y": angular_velocity_y,
-                    "angular_velocity_z": angular_velocity_z,
-                }
-            )
-        )
-    df = pd.DataFrame(series_list)
-    return df
-
-
-def person_to_df(person_msgs: List[Person]) -> pd.DataFrame:
-    series_list = []
-    for msg in person_msgs:
-        name = msg.name
-        position_x = msg.position.x
-        position_y = msg.position.y
-        yaw = msg.position.z
-        velocity_x = msg.velocity.x
-        velocity_y = msg.velocity.y
-        angular_velocity_z = msg.velocity.z
-        series_list.append(
-            pd.Series(
-                {
-                    "name": name,
-                    "position_x": position_x,
-                    "position_y": position_y,
-                    "yaw": yaw,
-                    "velocity_x": velocity_x,
-                    "velocity_y": velocity_y,
                     "angular_velocity_z": angular_velocity_z,
                 }
             )
@@ -144,7 +117,7 @@ def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
                 {
                     "name": person.name,
                     "id": tags["id"],
-                    "group": tags["group_id"],
+                    "group_id": tags["group_id"],
                     "behaviour": tags["behaviour"],
                     "position_x": person.position.x,
                     "position_y": person.position.y,
@@ -252,7 +225,8 @@ def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
     df_transforms = pd.DataFrame(series_list)
     df = df.combine_first(df_transforms)
     df.sort_values(by="time", inplace=True, ignore_index=True)
-    df.fillna(method="ffill", inplace=True)
+    # df.fillna(method="ffill", inplace=True)
+    df.ffill(inplace=True)
     df.dropna(inplace=True)
     df.reset_index(drop=True, inplace=True)
     return df
@@ -271,7 +245,7 @@ def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
         lambda x: x["angular_velocity_z"]
     )
     df_person["behaviour"] = df_person[person_name].apply(lambda x: x["behaviour"])
-    df_person["group"] = df_person[person_name].apply(lambda x: x["group"])
+    df_person["group_id"] = df_person[person_name].apply(lambda x: x["group_id"])
     df_person["id"] = df_person[person_name].apply(lambda x: x["id"])
     df_person.drop(columns=[person_name], inplace=True)
     return df_person
@@ -288,14 +262,18 @@ def get_goal_position(pose_stamped_msgs: List[PoseStamped]) -> Tuple[float, floa
 
 
 def time_goal_reached(
-    df: pd.DataFrame, goal_position: Tuple[float, float], threshold: float = 0.5
+    df: pd.DataFrame,
+    goal_position: Tuple[float, float],
+    threshold: float = 0.5,
+    robot_radius: float = 0.3,
 ) -> float:
     df["distance_to_goal"] = (
-        (df["x"] - goal_position[0]) ** 2 + (df["y"] - goal_position[1]) ** 2
+        (df["position_x"] - goal_position[0]) ** 2
+        + (df["position_y"] - goal_position[1]) ** 2
     ) ** 0.5
     # return the time when the goal was reached
-    if df["distance_to_goal"].min() < threshold:
-        return df[df["distance_to_goal"] < threshold].iloc[0]["time"]
+    if df["distance_to_goal"].min() < threshold + robot_radius:
+        return df[df["distance_to_goal"] < threshold + robot_radius].iloc[0]["time"]
 
 
 def filter_df_by_time(

@@ -133,9 +133,9 @@ def compute_odometry_data(
 
     # add columns to the dataframe that contain the velocity of the robot
 
-    df["velocity_x"] = df["position_x"].diff(periods=period)
-    df["velocity_y"] = df["position_y"].diff(periods=period)
-    df["velocity_z"] = df["position_z"].diff(periods=period)
+    df["velocity_x"] = df.position_x.diff(periods=period)
+    df["velocity_y"] = df.position_y.diff(periods=period)
+    df["velocity_z"] = df.position_z.diff(periods=period)
 
     dt = df.time.diff(periods=period)
     dt[dt < 1e-3] = np.nan
