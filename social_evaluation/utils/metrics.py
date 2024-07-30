@@ -9,155 +9,81 @@ from typing import List, Tuple, Dict, Any, Union
 from enum import Enum
 from social_evaluation.utils.utils import time_goal_reached
 from social_evaluation.utils.sfm import *
+from social_evaluation.utils.metrics_utils import *
 
 # Teaching Robot Navigation Behaviors to Optimal RRT Planners
 # Noé Pérez-Higueras, Fernando Caballero & Luis Merino
 
 
-class SocialSpace(Enum):
-    """Social space categories
-    INTIMATE: 0.45 meters
-    PERSONAL: 1.2 meters
-    SOCIAL: 3.6 meters
-    PUBLIC: 3.6 meters or more"""
+""" Metrics for evaluating social navigation 
+    The metrics are based on the following papers:
+    - Teaching Robot Navigation Behaviors to Optimal RRT Planners
+    - SEAN 2.0: Formalizing and Generating Social Situations for Robot Navigation
+    - SocNavBench: A Grounded Simulation Testing Framework for Evaluating Social Navigation
+    - Learning a Group-Aware Policy for Robot Navigation
+    - Evaluation of Socially-Aware Robot Navigation
 
-    INTIMATE = 0
-    PERSONAL = 1
-    SOCIAL = 2
-    PUBLIC = 3
+    The metrics are divided into the following categories:
+    - Navigation metrics
+    - Social space metrics
+    - Collision metrics
+    - Robot dynamics metrics
+    - Group dynamics metrics
+    - Social force model metrics
+    - Path planning metrics
+    
+    The metrics are implemented as functions that take the following arguments:
+    - df_robot: pandas DataFrame with the robot's data
+    - df_agents_list: list of pandas DataFrames with the agents' data
+    - goal: tuple with the goal position (x, y)
+    - robot_radius: float with the robot's radius
+    - agent_radius: float with the agent's radius
+    - period: int with the period for computing the metrics
+    - min_velocity: float with the minimum velocity for considering the robot not moving
+    - min_angular_velocity: float with the minimum angular velocity for considering the robot not moving
+    - goal_tolerance: float with the goal tolerance for considering the goal reached
+    - max_accel: float with the maximum acceleration
+    - max_jerk: float with the maximum jerk
+    - alpha: float with the exponential moving average factor
+    - dist_threshold: float with the distance threshold for considering a collision with a static obstacle
 
+    The metrics return a tuple with the metric value and a pandas DataFrame with the metric values over time.
+    
+    Metrics:
+    - time_to_reach_goal: Compute the total time of the robot's trajectory
+    - path_length: Compute the total length of the robot's trajectory
+    - cumulative_heading_changes: Compute the cumulative heading changes of the robot
+    - avg_distance_to_closest_person: Compute the average distance to the closest person
+    - minimum_distance_to_people: Compute the minimum distance to people
+    - maximum_distance_to_people: Compute the maximum distance to people
+    - intimate_space_intrusions: Compute the percentage of intimate space intrusions
+    - personal_space_intrusions: Compute the percentage of personal space intrusions
+    - social_space_intrusions: Compute the percentage of social space intrusions
+    - public_space_intrusions: Compute the percentage of public space intrusions
+    - group_intimate_space_intrusions: Compute the percentage of intimate space intrusions for each group
+    - group_personal_space_intrusions: Compute the percentage of personal space intrusions for each group
+    - group_social_space_intrusions: Compute the percentage of social space intrusions for each group
+    - group_public_space_intrusions: Compute the percentage of public space intrusions for each group
+    - robot_on_person_collision: Check for collisions between the robot and people
+    - person_on_robot_collision: Check for collisions between the robot and people
+    - time_not_moving: Compute the time the robot is not moving
+    - completed: Check if the robot reached the goal
+    - final_goal_distance: Compute the distance between the last robot position and the target position
+    - minimum_goal_distance: Compute the closest the robot passes to the target position
+    - avg_robot_linear_speed: Compute the average robot linear speed
+    - avg_robot_angular_speed: Compute the average robot angular speed
+    - avg_acceleration: Compute the average robot acceleration
+    - avg_overacceleration: Compute the average robot jerk
+    - avg_pedestrian_velocity: Compute the average pedestrian velocity
+    - avg_closest_pedestrian_velocity: Compute the average velocity of the closest pedestrian to the robot
+    - social_force_on_agents: Compute the cumulative modulus of the social force provoked by the robot to the agents
+    - social_force_on_robot: Compute the cumulative modulus of the social force provoked by the agents to the robot
+    - social_work: Compute the cumulative social work employed in this planner
+    - social_work_per_second: Compute the cumulative social work employed in this planner per second
+    - obstacle_force_on_agents: Compute the cumulative modulus of the obstacle force provoked by the obstacles to the agents
+    - obstacle_force_on_robot: Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot
 
-def indicator_function(distance: float, k: SocialSpace) -> int:
-    match k:
-        case SocialSpace.INTIMATE:
-            return 1 if distance < 0.45 else 0
-        case SocialSpace.PERSONAL:
-            return 1 if 0.45 <= distance < 1.2 else 0
-        case SocialSpace.SOCIAL:
-            return 1 if 1.2 <= distance < 3.6 else 0
-        case SocialSpace.PUBLIC:
-            return 1 if 3.6 <= distance else 0
-        case _:
-            return 0
-
-
-metrics = {}
-
-
-def metric(name: str) -> callable:
-    def decorator(func) -> callable:
-        metrics[name] = func
-        return func
-
-    return decorator
-
-
-def normalize_angle(angle: float) -> float:
-    """Normalize the angle to be between -pi and pi"""
-    return (angle + np.pi) % (2 * np.pi) - np.pi
-
-
-def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
-    """Combine the agents dataframes"""
-    df_agents = df_agents_list[0].add_suffix("_agent0")
-    df_agents.rename(columns={"time_agent0": "time"}, inplace=True)
-    for i, df_agent in enumerate(df_agents_list[1:]):
-        df_agents = df_agents.merge(
-            df_agent, on="time", how="outer", suffixes=("", f"_agent{i}")
-        )
-    df_agents = df_agents.interpolate(method="cubic", order=3)
-    df_agents.dropna(inplace=True)
-    df_agents.reset_index(drop=True, inplace=True)
-    return df_agents
-
-
-def combine_df_robot_agents(
-    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
-) -> pd.DataFrame:
-    """Combine the robot and agents dataframes"""
-    df_agents = df_robot
-    df_agents = df_agents.merge(
-        combine_df_agents(df_agents_list), on="time", how="outer"
-    )
-
-    df_agents = df_agents.interpolate(method="cubic", order=3)
-    df_agents.dropna(inplace=True)
-    df_agents.reset_index(drop=True, inplace=True)
-    return df_agents
-
-
-def get_group_center(
-    df_agents_list: List[pd.DataFrame], group_id: int, distance: float
-) -> pd.DataFrame:
-    """Get the group center of the agents belonging to the same group
-    The group center is the 'average' position of the agents in the group"""
-
-    group = [df_agent for df_agent in df_agents_list if df_agent.group_id == group_id]
-    df_agents = combine_df_agents(group)
-
-    df_agents = df_agents.interpolate(method="cubic", order=3)
-    df_agents.dropna(inplace=True)
-    df_agents.reset_index(drop=True, inplace=True)
-
-    for i in range(len(df_agents_list)):
-        df_agents[f"group_point_x_agent{i}"] = df_agents.apply(
-            lambda x: [
-                x[f"position_x_agent{i}"] + distance * math.cos(x[f"yaw_agent{i}"])
-            ],
-            axis=1,
-        )
-        df_agents[f"group_point_y_agent{i}"] = df_agents.apply(
-            lambda x: [
-                x[f"position_y_agent{i}"] + distance * math.sin(x[f"yaw_agent{i}"])
-            ],
-            axis=1,
-        )
-
-    df_agents["group_center_x"] = df_agents.apply(
-        lambda x: np.mean(
-            [x[f"group_point_agent{i}"] for i in range(len(df_agents_list))], axis=0
-        ),
-        axis=1,
-    )
-    df_agents["group_center_y"] = df_agents.apply(
-        lambda x: np.mean(
-            [x[f"group_point_y_agent{i}"] for i in range(len(df_agents_list))], axis=0
-        ),
-        axis=1,
-    )
-    return df_agents["time", "group_center_x", "group_center_y"]
-
-
-def distance_to_closest_person(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    robot_radius: float = 0.3,
-    agent_radius: float = 0.3,
-) -> pd.DataFrame:
-    """Compute the distance to the closest person"""
-    df_agents = combine_df_robot_agents(df_robot, df_agents_list)
-    for i in range(len(df_agents_list)):
-        df_agents[f"distance_agent{i}"] = df_agents.apply(
-            lambda x: np.linalg.norm(
-                [
-                    x["position_x"] - x[f"position_x_agent{i}"],
-                    x["position_y"] - x[f"position_y_agent{i}"],
-                ]
-            ),
-            axis=1,
-        )
-    df_agents["min_distance"] = (
-        df_agents[[f"distance_agent{i}" for i in range(len(df_agents_list))]].min(
-            axis=1
-        )
-        - robot_radius
-        - agent_radius
-    )
-    df_agents[["time", "min_distance"]]
-    return df_agents[["time", "min_distance"]]
-
-
-### Metrics ###
+"""
 
 
 @metric("time_to_reach_goal")
@@ -244,18 +170,6 @@ def maximum_distance_to_people(
     return np.max(df_agents["max_distance"]), df_agents[["time", "max_distance"]]
 
 
-def space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, k: SocialSpace
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of space intrusions"""
-    df_min_dist = distance_to_closest_person(df_agents_list, df_robot)
-    df_min_dist["intrusion"] = df_min_dist["min_distance"].apply(
-        lambda x: indicator_function(x, k)
-    )
-    intrusion_percentage = df_min_dist["intrusion"].mean() * 100
-    return intrusion_percentage, df_min_dist["time", "intrusion"]
-
-
 @metric("intimate_space_intrusions")
 def intimate_space_intrusions(
     df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
@@ -298,59 +212,6 @@ def public_space_intrusions(
         df_agents_list, df_robot, SocialSpace.PUBLIC
     )
     return percentage, df_intrusion
-
-
-def detect_groups(df_agents_list: List[pd.DataFrame]) -> List[int]:
-    """Detect the groups in the agents"""
-    group_ids = []
-    for df_agent in df_agents_list:
-        df_agent.dropna(inplace=True)
-        group_ids.extend(df_agent.group_id.unique())
-    group_ids = [int(group_id) for group_id in group_ids if group_id != "-1"]
-    return group_ids
-
-
-def group_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    k: SocialSpace,
-    group_radius: float = 1.5,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of space intrusions for each group"""
-    group_ids = detect_groups(df_agents_list)
-    if len(group_ids) == 0:
-        return [0.0, pd.DataFrame()]
-
-    df_agents = combine_df_robot_agents(df_robot, df_agents_list)
-    df_group_intrusions = pd.DataFrame()
-    df_group_intrusions["time"] = df_agents["time"]
-    df_group_intrusions["group_intrusion"] = 0
-    for group_id in group_ids:
-        df_group_center = get_group_center(df_agents_list, group_id, group_radius)
-        df_group_center.merge(df_robot, on="time", how="outer")
-        df_group_center = df_group_center.interpolate(method="cubic", order=3)
-        df_group_center.dropna(inplace=True)
-        df_group_center.reset_index(drop=True, inplace=True)
-
-        df_group_center["distance"] = df_group_center.apply(
-            lambda x: np.linalg.norm(
-                [
-                    x["group_center_x"] - x["position_x"],
-                    x["group_center_y"] - x["position_y"],
-                ]
-            ),
-            axis=1,
-        )
-        df_group_center["intrusion"] = df_group_center["distance"].apply(
-            lambda x: indicator_function(x, k)
-        )
-        df_group_intrusions["group_intrusion"] += df_group_center["intrusion"]
-
-    df_group_intrusions["group_intrusion"] = df_group_intrusions[
-        "group_intrusion"
-    ].apply(lambda x: 1 if x > 0 else 0)
-    intrusion_percentage = df_group_intrusions["group_intrusion"].mean() * 100
-    return intrusion_percentage, df_group_intrusions
 
 
 @metric("group_intimate_space_intrusions")
@@ -403,91 +264,6 @@ def group_public_space_intrusions(
 # The metrics Robot on Person Personal Distance Violation, Person on Robot Personal Distance Violation, Intimate Distance Violation and
 # Person on Robot Intimate Distance Violation have already been implemented in the Personal_space_intrusions function.
 # Instead of returning the number of times, it returns a percentage of distance violation.
-
-
-def check_collisions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
-) -> Tuple[int, int, pd.DataFrame]:
-    """Check for collisions between the robot and people"""
-    robot_collisions = 0
-    person_collisions = 0
-
-    df_agents = combine_df_robot_agents(df_robot, df_agents_list)
-    for i in range(len(df_agents_list)):
-        df_agents[f"distance_agent{i}"] = df_agents.apply(
-            lambda x: np.linalg.norm(
-                [
-                    x["position_x"] - x[f"position_x_agent{i}"],
-                    x["position_y"] - x[f"position_y_agent{i}"],
-                ]
-            ),
-            axis=1,
-        )
-        df_agents[f"collision_agent{i}"] = df_agents[f"distance_agent{i}"].apply(
-            lambda x: 1 if x < 0.6 else 0
-        )
-        # we want to distinguish between the robot colliding with a person and a person colliding with the robot
-
-        # find the direction of the robot with respect to the person
-        df_agents[f"angle_agent{i}"] = df_agents.apply(
-            lambda x: np.arctan2(
-                x[f"position_y_agent{i}"] - x["position_y"],
-                x[f"position_x_agent{i}"] - x["position_x"],
-            ),
-            axis=1,
-        )
-        df_agents[f"angle_robot{i}"] = df_agents.apply(
-            lambda x: np.arctan2(
-                x["position_y"] - x[f"position_y_agent{i}"],
-                x["position_x"] - x[f"position_x_agent{i}"],
-            ),
-            axis=1,
-        )
-
-        df_agents[f"collision_agent{i}"] = df_agents.apply(
-            lambda x: (
-                1
-                if (
-                    abs(x[f"angle_agent{i}"]) < abs(x[f"angle_robot{i}"])
-                    and x["velocity_x"] > x[f"velocity_x_agent{i}"]
-                )
-                or (
-                    abs(x[f"angle_agent{i}"]) > abs(x[f"angle_robot{i}"])
-                    and x["velocity_x"] < x[f"velocity_x_agent{i}"]
-                )
-                or (
-                    abs(x[f"angle_agent{i}"]) == abs(x[f"angle_robot{i}"])
-                    and x["velocity_x"] == x[f"velocity_x_agent{i}"]
-                )
-                else 0
-            ),
-            axis=1,
-        )
-
-        df_agents[f"collision_robot{i}"] = df_agents.apply(
-            lambda x: (
-                1
-                if (
-                    abs(x[f"angle_agent{i}"]) > abs(x[f"angle_robot{i}"])
-                    and x["velocity_x"] < x[f"velocity_x_agent{i}"]
-                )
-                or (
-                    abs(x[f"angle_agent{i}"]) < abs(x[f"angle_robot{i}"])
-                    and x["velocity_x"] > x[f"velocity_x_agent{i}"]
-                )
-                or (
-                    abs(x[f"angle_agent{i}"]) == abs(x[f"angle_robot{i}"])
-                    and x["velocity_x"] == x[f"velocity_x_agent{i}"]
-                )
-                else 0
-            ),
-            axis=1,
-        )
-
-        robot_collisions += df_agents[f"collision_robot{i}"].sum()
-        person_collisions += df_agents[f"collision_agent{i}"].sum()
-
-    return robot_collisions, person_collisions, df_agents
 
 
 @metric("robot_on_person_collision")
@@ -637,28 +413,6 @@ def avg_pedestrian_velocity(
     )
 
 
-def closest_agent_to_robot(
-    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
-) -> List[float]:
-    """Compute the closest pedestrian to the robot as a list of indexes"""
-    df_agents = combine_df_robot_agents(df_robot, df_agents_list)
-    df_agents["closest_agent"] = df_agents.apply(
-        lambda x: np.argmin(
-            [
-                np.linalg.norm(
-                    [
-                        x["position_x"] - x[f"position_x_agent{i}"],
-                        x["position_y"] - x[f"position_y_agent{i}"],
-                    ]
-                )
-                for i in range(len(df_agents_list))
-            ]
-        ),
-        axis=1,
-    )
-    return df_agents["closest_agent"]
-
-
 @metric("avg_closest_pedestrian_velocity")
 def avg_closest_pedestrian_velocity(
     df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
@@ -753,6 +507,7 @@ def obstacle_force_on_agents(
     )
 
 
+@metric("obstacle_force_on_robot")
 def obstacle_force_on_robot(
     df_robot: pd.DataFrame, df_obstacles: pd.DataFrame
 ) -> Tuple[float, pd.DataFrame]:
