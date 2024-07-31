@@ -15,16 +15,6 @@ experiment_ids:
   - 4
   - 5
 base_path: /home/andrea/workspaces/appl_ws/bags
-transforms:
-  - map_to_base_link:
-      child_frame_id: "base_link"
-      frame_id: "map"
-
-map_path: /home/andrea/workspaces/appl_ws/maps
-map_name: "covivio_v1.yaml"
-
-examined_people:
-  - U_1.U_1
 
 metrics:
   - time_to_reach_goal

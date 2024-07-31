@@ -77,3 +77,26 @@ def df_human():
             "angular_velocity_z": [0.0, 1.0, 2.0, 3.0],
         }
     )
+
+
+@pytest.fixture
+def df_obstacles():
+    """Fixture for the obstacles dataframe
+    it has the following columns:
+    - x
+    - y
+    """
+    return pd.DataFrame(
+        {
+            "x": [0.0, 1.0, 2.0, 3.0],
+            "y": [0.0, 1.0, 2.0, 3.0],
+        }
+    )
+
+
+@pytest.fixture
+def df_agent_list():
+    """Fixture for the agents list
+    it is a list of dataframes containing df_human
+    """
+    return [df_human, df_human]

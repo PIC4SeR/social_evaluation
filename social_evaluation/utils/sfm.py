@@ -138,9 +138,9 @@ def compute_social_force_two_agents(
     df_interaction.reset_index(drop=True, inplace=True)
 
     df_interaction["diff"] = df_interaction[["position_x_1", "position_y_1"]].apply(
-        lambda x: np.array([x[0], x[1]]), axis=1
+        lambda x: np.array([x["position_x_1"], x["position_y_1"]]), axis=1
     ) - df_interaction[["position_x_2", "position_y_2"]].apply(
-        lambda x: np.array([x[0], x[1]]), axis=1
+        lambda x: np.array([x["position_x_2"], x["position_y_2"]]), axis=1
     )
     df_interaction["diff_norm"] = df_interaction.apply(
         lambda x: np.linalg.norm(x["diff"]), axis=1
@@ -150,9 +150,9 @@ def compute_social_force_two_agents(
     )
 
     df_interaction["vel_diff"] = df_interaction[["velocity_x_1", "velocity_y_1"]].apply(
-        lambda x: np.array([x[0], x[1]]), axis=1
+        lambda x: np.array([x["velocity_x_1"], x["velocity_y_1"]]), axis=1
     ) - df_interaction[["velocity_x_2", "velocity_y_2"]].apply(
-        lambda x: np.array([x[0], x[1]]), axis=1
+        lambda x: np.array([x["velocity_x_2"], x["velocity_y_2"]]), axis=1
     )
     df_interaction["interaction_vector"] = (
         df_interaction["diff"] + lambda_ * df_interaction["vel_diff"]
@@ -204,7 +204,7 @@ def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the social force provoked by the other agents to the agent examined
     """
-    for i, agent in df_agents:
+    for i, agent in enumerate(df_agents):
         df_agent[f"social_force_{i}"] = compute_social_force_two_agents(df_agent, agent)
     df_agent["social_force"] = df_agent[
         [f"social_force_{i}" for i in range(len(df_agents))]
@@ -217,18 +217,23 @@ def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     It computes the cumulative modulus of the social force provoked by the agents in the agent
     """
     df_agent["social_force"] = compute_social_force(df_agent, df_agents)
-    return df_agent["social_force"].apply(np.linalg.norm, axis=1)
+    return df_agent["social_force"].apply(
+        lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan
+    )
 
 
 def compute_social_force_2(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the social force provoked by the agent in examination to the other agents
     """
-    for i, agent in df_agents:
+    for i, agent in enumerate(df_agents):
         df_agent[f"social_force_{i}"] = compute_social_force_two_agents(agent, df_agent)
     df_agent["social_force"] = df_agent[
         [f"social_force_{i}" for i in range(len(df_agents))]
     ].sum(axis=1)
+    df_agent["social_force"] = df_agent["social_force"].apply(
+        lambda x: np.nan if not isinstance(x, np.ndarray) else x
+    )
     return df_agent["social_force"]
 
 
@@ -237,7 +242,11 @@ def modulus_social_force_2(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]
     It computes the cumulative modulus of the social force provoked by the agent in the rest of agents
     """
     df_agent["social_force"] = compute_social_force_2(df_agent, df_agents)
-    return df_agent["social_force"].apply(np.linalg.norm, axis=1)
+    return (
+        df_agent["social_force"]
+        .dropna()
+        .apply(lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan)
+    )
 
 
 def compute_social_work(df_robot: pd.DataFrame, df_agents: List[pd.DataFrame]):

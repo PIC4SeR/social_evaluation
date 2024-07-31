@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 from social_evaluation import utils
 
 import pandas as pd
@@ -10,12 +11,15 @@ import pickle
 import os
 
 
-def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> pd.DataFrame:
+def extract_topics_from_bag(
+    bag_file: Path, topics: List[str]
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Tuple[float, float]]:
     """
     Extract the topics specified in the config file from the bag file
     and return the dataframes for each topic.
     : param bag_file: Path to the bag file
     : param topics: List of topics to extract
+    : return: Tuple with the dataframes for odometry, people, tf and goal
     """
     df_odometry = pd.DataFrame()
     df_people = pd.DataFrame()
@@ -38,7 +42,7 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> pd.DataFrame:
 
 
 def extract_transforms_from_dataframes(
-    df_tf: pd.DataFrame, config_tf: Dict[str, Any]
+    df_tf: pd.DataFrame, config_tf: Dict[str, Any], config_odometry: Dict[str, Any]
 ) -> Dict[str, pd.DataFrame]:
     """Extract the selected transforms from the tf dataframes
     : param df_tf: Dataframe with the tf data
@@ -65,26 +69,40 @@ def extract_transforms_from_dataframes(
                     )
                 )
             transforms[transform_name] = pd.DataFrame(transformations_parent_child)
+            transforms[transform_name], _ = utils.compute_odometry_data(
+                transforms[transform_name],
+                period=config_odometry["period_for_diff"],
+                max_velocity=config_odometry["max_velocity"],
+                max_angular_vel=config_odometry["max_angular_velocity"],
+                alpha=config_odometry["alpha"],
+            )
     return transforms
 
 
 def extract_data_from_bag(
-    bag_file: Path, config: Dict[str, Any]
+    bag_file: Path, topics: List[str], exp_config: Dict[str, Any]
 ) -> Dict[str, pd.DataFrame]:
     """Extract the data from the bag file
     : param bag_file: Path to the bag file
-    : param config: Configuration for the data extraction
+    : param exp_config: Configuration for the experiment
     : return: Dictionary with the extracted data
     """
-    df_odometry, df_people, df_tf, goal = extract_topics_from_bag(
-        bag_file, config["topics"]
+    df_odometry, df_people, df_tf, goal = extract_topics_from_bag(bag_file, topics)
+    transforms = extract_transforms_from_dataframes(
+        df_tf, exp_config["transforms"], exp_config["robot_dynamics"]
     )
-    transforms = extract_transforms_from_dataframes(df_tf, config["transforms"])
+    df_agents_list = []
+    for person in exp_config["examined_people"]:
+        df_agents_list.append(utils.get_person_data(df_people, person))
+    df_obs, map = extract_obstacle_data(exp_config["map_file"])
     return {
         "odometry": df_odometry,
         "people": df_people,
+        "agents": df_agents_list,
         "goal": goal,
         "transforms": transforms,
+        "obstacles": df_obs,
+        "map": map,
     }
 
 
@@ -97,17 +115,30 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
     algorithms = config["algorithms"]
     experiment_ids = config["experiment_ids"]
     base_path = config["base_path"]
-    bag_paths = []
+    # bag_paths = []
+    data = {}
     for experiment_name in experiment_names:
         for algorithm in algorithms:
             for i in experiment_ids:
                 bag_path = utils.get_bag_path(experiment_name, algorithm, base_path, i)
-                bag_paths.append(bag_path)
-
-    data = {}
-    for bag_file in bag_paths:
-        data[bag_file] = extract_data_from_bag(bag_file, config)
+                # bag_paths.append(bag_path)
+                data[bag_path] = extract_data_from_bag(
+                    bag_path, config["topics"], config[experiment_name]
+                )
     return data
+
+
+def extract_obstacle_data(
+    map_file: Path,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Extract the map data from the map file
+    : param map_file: Path to the map file
+    : return: Tuple with the obstacle data and the occupancy gridmap
+    """
+
+    occupancy_gridmap, metadata = utils.get_map_data(map_file)
+    df_obstacles = utils.retrieve_obstacle_positions(occupancy_gridmap, metadata)
+    return df_obstacles, occupancy_gridmap
 
 
 def save_data(data: Dict[str, pd.DataFrame], output_file: Path):
@@ -125,19 +156,26 @@ def main():
     parser.add_argument(
         "--config-file",
         type=Path,
-        help="Config file",
+        help="Config file for the extraction parameters",
         default="config/config.yaml",
     )
 
     parser.add_argument(
-        "--bag_file_path",
+        "--exp-config-file",
+        type=Path,
+        help="Config file for all the experiments parameters",
+        default="config/experiments_config.yaml",
+    )
+
+    parser.add_argument(
+        "--bag-file-path",
         type=Path,
         help="Bag file path to extract data from",
         default="None",
     )
 
     parser.add_argument(
-        "--output_file",
+        "--output-file",
         type=Path,
         help="Output file path to save the extracted data",
         default="output.pickle",
@@ -145,8 +183,15 @@ def main():
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
+
     config_path = Path(args.config_file)
     config = yaml.load(config_path.read_text(), Loader=yaml.FullLoader)
+
+    env_config_path = Path(args.exp_config_file)
+    env_config = yaml.load(env_config_path.read_text(), Loader=yaml.FullLoader)
+
+    for experiment in config["experiment_names"]:
+        config[experiment] = env_config[experiment]
 
     if args.bag_file_path != PosixPath("None"):
         bag_file = Path(args.bag_file_path)

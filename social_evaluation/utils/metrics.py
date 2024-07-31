@@ -87,13 +87,24 @@ from social_evaluation.utils.metrics_utils import *
 
 
 @metric("time_to_reach_goal")
-def total_time(df_robot: pd.DataFrame) -> float:
+def total_time(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
+) -> float:
     """Compute the total time of the robot's trajectory"""
     return df_robot.time.iloc[-1] - df_robot.time.iloc[0]
 
 
 @metric("path_length")
-def robot_path_length(df_robot: pd.DataFrame, period: int = 4) -> float:
+def robot_path_length(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    period: int = 4,
+    **kwargs,
+) -> float:
     """Compute the total length of the robot's trajectory"""
     step_x = df_robot.position_x.diff(periods=period)
     step_y = df_robot.position_y.diff(periods=period)
@@ -101,7 +112,12 @@ def robot_path_length(df_robot: pd.DataFrame, period: int = 4) -> float:
 
 
 @metric("cumulative_heading_changes")
-def cumulative_heading_changes(df_robot: pd.DataFrame) -> float:
+def cumulative_heading_changes(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
+) -> float:
     """Compute the cumulative heading changes of the robot"""
     # normalize the angles
     yaw = df_robot.yaw.apply(normalize_angle)
@@ -113,8 +129,10 @@ def cumulative_heading_changes(df_robot: pd.DataFrame) -> float:
 def avg_closest_person(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
+    *args,
     robot_radius: float = 0.3,
     agent_radius: float = 0.3,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the average distance to the closest person"""
     df_min_dist = distance_to_closest_person(
@@ -128,8 +146,10 @@ def avg_closest_person(
 def minimum_distance_to_people(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
+    *args,
     robot_radius: float = 0.3,
     agent_radius: float = 0.3,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the minimum distance to people"""
     df_min_dist = distance_to_closest_person(
@@ -144,8 +164,10 @@ def minimum_distance_to_people(
 def maximum_distance_to_people(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
+    *args,
     robot_radius: float = 0.3,
     agent_radius: float = 0.3,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the maximum distance to people"""
     df_agents = combine_df_robot_agents(df_robot, df_agents_list)
@@ -172,7 +194,7 @@ def maximum_distance_to_people(
 
 @metric("intimate_space_intrusions")
 def intimate_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args, **kwargs
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of intimate space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -183,7 +205,7 @@ def intimate_space_intrusions(
 
 @metric("personal_space_intrusions")
 def personal_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args, **kwargs
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of personal space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -194,7 +216,7 @@ def personal_space_intrusions(
 
 @metric("social_space_intrusions")
 def social_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args, **kwargs
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of social space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -205,7 +227,10 @@ def social_space_intrusions(
 
 @metric("public_space_intrusions")
 def public_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of public space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -216,7 +241,10 @@ def public_space_intrusions(
 
 @metric("group_intimate_space_intrusions")
 def group_intimate_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of intimate space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
@@ -227,7 +255,10 @@ def group_intimate_space_intrusions(
 
 @metric("group_personal_space_intrusions")
 def group_personal_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of personal space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
@@ -238,7 +269,10 @@ def group_personal_space_intrusions(
 
 @metric("group_social_space_intrusions")
 def group_social_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of social space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
@@ -249,7 +283,10 @@ def group_social_space_intrusions(
 
 @metric("group_public_space_intrusions")
 def group_public_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of public space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
@@ -268,7 +305,10 @@ def group_public_space_intrusions(
 
 @metric("robot_on_person_collision")
 def robot_on_person_collision(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[int, pd.DataFrame]:
     """Check for collisions between the robot and people"""
     robot_collisions, _, df_agents = check_collisions(df_agents_list, df_robot)
@@ -277,7 +317,10 @@ def robot_on_person_collision(
 
 @metric("person_on_robot_collision")
 def person_on_robot_collision(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[int, pd.DataFrame]:
     """Check for collisions between the robot and people"""
     _, person_collisions, df_agents = check_collisions(df_agents_list, df_robot)
@@ -286,10 +329,13 @@ def person_on_robot_collision(
 
 @metric("time_not_moving")
 def time_not_moving(
+    df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
+    *args,
     period: int = 1,
     min_velocity: float = 0.01,
     min_angular_velocity: float = 0.02,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the time the robot is not moving"""
     not_moving = df_robot.apply(
@@ -307,17 +353,26 @@ def time_not_moving(
 
 @metric("completed")
 def goal_reached(
+    df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
+    *args,
     goal: Tuple[float, float],
     goal_tolerance: float = 0.5,
     robot_radius: float = 0.3,
+    **kwargs,
 ) -> bool:
     """Check if the robot reached the goal"""
     return time_goal_reached(df_robot, goal, goal_tolerance, robot_radius) is not None
 
 
 @metric("final_goal_distance")
-def final_goal_distance(df_robot: pd.DataFrame, goal: Tuple[float, float]) -> float:
+def final_goal_distance(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    goal: Tuple[float, float],
+    **kwargs,
+) -> float:
     """Compute the distance between the last robot position and the target position."""
     x = df_robot.position_x.iloc[-1]
     y = df_robot.position_y.iloc[-1]
@@ -325,7 +380,13 @@ def final_goal_distance(df_robot: pd.DataFrame, goal: Tuple[float, float]) -> fl
 
 
 @metric("minimum_goal_distance")
-def minimum_goal_distance(df_robot: pd.DataFrame, goal: Tuple[float, float]) -> float:
+def minimum_goal_distance(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    goal: Tuple[float, float],
+    **kwargs,
+) -> float:
     """Compute the closest the robot passes to the target position."""
     x = df_robot.position_x
     y = df_robot.position_y
@@ -337,26 +398,42 @@ def minimum_goal_distance(df_robot: pd.DataFrame, goal: Tuple[float, float]) -> 
 
 
 @metric("avg_robot_linear_speed")
-def avg_robot_linear_speed(df_robot: pd.DataFrame) -> Tuple[float, pd.DataFrame]:
+def avg_robot_linear_speed(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
     """Compute the average robot linear speed"""
     return df_robot.velocity_x.abs().mean(), df_robot.velocity_x.abs()
 
 
 @metric("avg_robot_angular_speed")
-def avg_robot_angular_speed(df_robot: pd.DataFrame) -> Tuple[float, pd.DataFrame]:
+def avg_robot_angular_speed(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
     """Compute the average robot angular speed"""
     return df_robot.angular_velocity_z.abs().mean(), df_robot.angular_velocity_z
 
 
 @metric("avg_acceleration")
 def avg_acceleration(
-    df_robot: pd.DataFrame, period: int = 5, max_accel: float = 1.0, alpha: float = 0.1
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    period: int = 5,
+    max_accel: float = 1.0,
+    alpha: float = 0.1,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the average robot acceleration"""
     df_robot["acceleration"] = df_robot.velocity_x.abs().diff(
         periods=period
     ) / df_robot.time.diff(periods=period)
-    df_robot["acceleration" > max_accel] = np.nan
+    df_robot[df_robot["acceleration"].abs() > max_accel] = np.nan
     df_robot["acceleration"].interpolate(method="cubic", order=3, inplace=True)
     df_robot.dropna(inplace=True)
     df_robot.reset_index(drop=True, inplace=True)
@@ -367,18 +444,23 @@ def avg_acceleration(
 
 @metric("avg_overacceleration")
 def avg_overacceleration(
+    df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
+    *args,
     period: int = 5,
     max_accel: float = 1.0,
     max_jerk: float = 1.0,
     alpha: float = 0.1,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the average robot over-acceleration"""
-    _, df_acceleration = avg_acceleration(df_robot, period, max_accel, alpha)
-    df_acceleration["jerk"] = df_robot.acceleration.diff(
+    _, df_acceleration = avg_acceleration(
+        df_agents_list, df_robot, period, max_accel, alpha
+    )
+    df_acceleration["jerk"] = df_acceleration.acceleration.diff(
         periods=period
     ) / df_acceleration.time.diff(periods=period)
-    df_acceleration["jerk" > max_jerk] = np.nan
+    df_acceleration[df_acceleration["jerk"].abs() > max_jerk] = np.nan
     df_acceleration["jerk"].interpolate(method="cubic", order=3, inplace=True)
     df_acceleration.dropna(inplace=True)
     df_acceleration.reset_index(drop=True, inplace=True)
@@ -394,6 +476,9 @@ def avg_overacceleration(
 @metric("avg_pedestrian_velocity")
 def avg_pedestrian_velocity(
     df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, List[float]]:
     """Compute the average pedestrian velocity"""
 
@@ -415,7 +500,10 @@ def avg_pedestrian_velocity(
 
 @metric("avg_closest_pedestrian_velocity")
 def avg_closest_pedestrian_velocity(
-    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, List[float]]:
     """Compute the average velocity of the closest pedestrian to the robot"""
     df_agents = combine_df_robot_agents(df_robot, df_agents_list)
@@ -445,7 +533,10 @@ def avg_pedestrian_angle(agents, robot):
 
 @metric("social_force_on_agents")
 def social_force_on_agents(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the social force provoked by the robot to the agents"""
     df_robot["social_force_norm"] = modulus_social_force_2(df_robot, df_agents_list)
@@ -454,7 +545,10 @@ def social_force_on_agents(
 
 @metric("social_force_on_robot")
 def social_force_on_robot(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the social force provoked by the agents to the robot"""
     df_robot["social_force_norm"] = modulus_social_force(df_robot, df_agents_list)
@@ -466,16 +560,24 @@ def social_force_on_robot(
 
 
 @metric("social_work")
-def social_work(df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame) -> float:
+def social_work(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
+) -> float:
     """Compute the cumulative social work employed in this planner"""
-    df_robot["social_work"] = social_work(df_robot, df_agents_list)
+    df_robot["social_work"] = compute_social_work(df_robot, df_agents_list)
     return df_robot["social_work"].sum(), df_robot[["time", "social_work"]]
 
 
 # social work per second or social power
 @metric("social_work_per_second")
 def social_work_per_second(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    **kwargs,
 ) -> float:
     """Compute the cumulative social work employed in this planner per second"""
     df_robot["social_work"] = social_work(df_robot, df_agents_list)
@@ -488,7 +590,11 @@ def social_work_per_second(
 
 @metric("obstacle_force_on_agents")
 def obstacle_force_on_agents(
-    df_agents_list: List[pd.DataFrame], df_obstacles: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_obstacles: pd.DataFrame,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the agents"""
     for df_agent in df_agents_list:
@@ -509,7 +615,11 @@ def obstacle_force_on_agents(
 
 @metric("obstacle_force_on_robot")
 def obstacle_force_on_robot(
-    df_robot: pd.DataFrame, df_obstacles: pd.DataFrame
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_obstacles: pd.DataFrame,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot"""
     df_robot["obstacle_force_norm"] = modulus_obstacle_force(df_robot, df_obstacles)
@@ -531,7 +641,12 @@ def path_efficiency(agents, robot):
 
 @metric("static_obstacle_collision")
 def static_obs_collision(
-    df_robot: pd.DataFrame, df_obstacles: pd.DataFrame, dist_threshold: float = 0.5
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_obstacles: pd.DataFrame,
+    dist_threshold: float = 0.5,
+    **kwargs,
 ) -> int:
     """Compute the number of times the robot collides with a static obstacle"""
 

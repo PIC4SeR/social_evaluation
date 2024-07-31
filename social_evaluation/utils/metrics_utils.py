@@ -61,7 +61,19 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
         df_agents = df_agents.merge(
             df_agent, on="time", how="outer", suffixes=("", f"_agent{i}")
         )
-    df_agents = df_agents.interpolate(method="cubic", order=3)
+    df_agents.infer_objects(copy=False)
+
+    attributes = [
+        attribute
+        for attribute in df_agents.columns.to_list()
+        if "time" not in attribute
+        and "id" not in attribute
+        and "behaviour" not in attribute
+    ]
+
+    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
+        method="cubic", order=3
+    )
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
     return df_agents
@@ -75,8 +87,17 @@ def combine_df_robot_agents(
     df_agents = df_agents.merge(
         combine_df_agents(df_agents_list), on="time", how="outer"
     )
-
-    df_agents = df_agents.interpolate(method="cubic", order=3)
+    df_agents.infer_objects(copy=False)
+    attributes = [
+        attribute
+        for attribute in df_agents.columns.to_list()
+        if "time" not in attribute
+        and "id" not in attribute
+        and "behaviour" not in attribute
+    ]
+    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
+        method="cubic", order=3
+    )
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
     return df_agents
@@ -162,7 +183,7 @@ def space_intrusions(
         lambda x: indicator_function(x, k)
     )
     intrusion_percentage = df_min_dist["intrusion"].mean() * 100
-    return intrusion_percentage, df_min_dist["time", "intrusion"]
+    return intrusion_percentage, df_min_dist[["time", "intrusion"]]
 
 
 def detect_groups(df_agents_list: List[pd.DataFrame]) -> List[int]:
