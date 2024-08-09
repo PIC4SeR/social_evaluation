@@ -258,7 +258,7 @@ def check_collisions(
             axis=1,
         )
         df_agents[f"collision_agent{i}"] = df_agents[f"distance_agent{i}"].apply(
-            lambda x: 1 if x < 0.6 else 0
+            lambda x: 1 if x < 0.06 else 0
         )
         # we want to distinguish between the robot colliding with a person and a person colliding with the robot
 

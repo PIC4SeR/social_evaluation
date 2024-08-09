@@ -152,16 +152,25 @@ def find_closest_obstacle_single(
     max_radius: float = 10.0,
 ):
     """Find the closest obstacle to an agent"""
-    df_obstacles["dist"] = np.linalg.norm(
-        np.array(df_obstacles[["x", "y"]])
-        - np.array(agent[["position_x", "position_y"]]),
+    df_obstacles_copy = df_obstacles.copy()
+
+    # print(f"the agent{agent}")
+    # print(f"the obstacles{df_obstacles_copy}")
+    # df_obstacles_copy["dist"] = np.linalg.norm(
+    #     np.array(df_obstacles_copy[["x", "y"]])
+    #     - np.array(agent[["position_x", "position_y"]]),
+    #     axis=1,
+    # )
+    df_obstacles_copy["dist"] = df_obstacles_copy.apply(
+        lambda x: np.linalg.norm(
+            np.array([x["x"], x["y"]])
+            - np.array([agent["position_x"], agent["position_y"]]),
+            axis=0,
+        ),
         axis=1,
     )
-    # df_obstacles = df_obstacles[
-    #     (df_obstacles["dist"] < max_radius) & (df_obstacles["dist"] > robot_radius)
-    # ]
-
-    return df_obstacles.loc[df_obstacles["dist"].idxmin()]
+    # print(f"the obstacles{df_obstacles_copy}")
+    return df_obstacles_copy.loc[df_obstacles_copy["dist"].idxmin()]
 
 
 def find_closest_obstacle(
@@ -171,11 +180,13 @@ def find_closest_obstacle(
     max_radius: float = 10.0,
 ):
     """Find the closest obstacle to an agent"""
-    df_agent.dropna(subset=["time"], inplace=True)
-    df_agent[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = df_agent.apply(
+    df_agent_ = df_agent.copy()
+    df_agent_.dropna(subset=["time", "position_x"], inplace=True)
+
+    df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = df_agent_.apply(
         lambda x: find_closest_obstacle_single(
             x, df_obstacles, robot_radius, max_radius
         ),
         axis=1,
     )
-    return df_agent
+    return df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]]

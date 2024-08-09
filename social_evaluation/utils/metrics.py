@@ -430,16 +430,17 @@ def avg_acceleration(
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the average robot acceleration"""
-    df_robot["acceleration"] = df_robot.velocity_x.abs().diff(
+    df_robot_ = df_robot.copy()
+    df_robot_["acceleration"] = df_robot.velocity_x.abs().diff(
         periods=period
     ) / df_robot.time.diff(periods=period)
-    df_robot[df_robot["acceleration"].abs() > max_accel] = np.nan
-    df_robot["acceleration"].interpolate(method="cubic", order=3, inplace=True)
-    df_robot.dropna(inplace=True)
-    df_robot.reset_index(drop=True, inplace=True)
-    df_robot["acceleration"].ewm(alpha=alpha).mean()
+    df_robot_[df_robot_["acceleration"].abs() > max_accel] = np.nan
+    df_robot_["acceleration"].interpolate(method="cubic", order=3, inplace=True)
+    df_robot_.dropna(inplace=True)
+    df_robot_.reset_index(drop=True, inplace=True)
+    df_robot_["acceleration"].ewm(alpha=alpha).mean()
 
-    return df_robot["acceleration"].mean(), df_robot[["time", "acceleration"]]
+    return df_robot_["acceleration"].mean(), df_robot_[["time", "acceleration"]]
 
 
 @metric("avg_overacceleration")
@@ -454,8 +455,9 @@ def avg_overacceleration(
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the average robot over-acceleration"""
+    df_robot_ = df_robot.copy()
     _, df_acceleration = avg_acceleration(
-        df_agents_list, df_robot, period, max_accel, alpha
+        df_agents_list, df_robot_, period, max_accel, alpha
     )
     df_acceleration["jerk"] = df_acceleration.acceleration.diff(
         periods=period
@@ -539,8 +541,14 @@ def social_force_on_agents(
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the social force provoked by the robot to the agents"""
-    df_robot["social_force_norm"] = modulus_social_force_2(df_robot, df_agents_list)
-    return df_robot["social_force_norm"].sum(), df_robot[["time", "social_force_norm"]]
+    df_robot_ = df_robot.copy()
+    df_robot_["social_force_dual_norm"] = modulus_social_force_dual(
+        df_robot_, df_agents_list
+    )
+    return (
+        df_robot_["social_force_dual_norm"].sum(),
+        df_robot_[["time", "social_force_dual_norm"]],
+    )
 
 
 @metric("social_force_on_robot")
@@ -550,9 +558,13 @@ def social_force_on_robot(
     *args,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
+    df_robot_ = df_robot.copy()
     """Compute the cumulative modulus of the social force provoked by the agents to the robot"""
-    df_robot["social_force_norm"] = modulus_social_force(df_robot, df_agents_list)
-    return df_robot["social_force_norm"].sum(), df_robot[["time", "social_force_norm"]]
+    df_robot_["social_force_norm"] = modulus_social_force(df_robot_, df_agents_list)
+    return (
+        df_robot_["social_force_norm"].sum(),
+        df_robot_[["time", "social_force_norm"]],
+    )
 
 
 # cumulative social work employed in this planner:
@@ -564,11 +576,15 @@ def social_work(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    df_obstacles: pd.DataFrame,
     **kwargs,
 ) -> float:
+    df_robot_ = df_robot.copy()
     """Compute the cumulative social work employed in this planner"""
-    df_robot["social_work"] = compute_social_work(df_robot, df_agents_list)
-    return df_robot["social_work"].sum(), df_robot[["time", "social_work"]]
+    df_robot_["social_work"] = compute_social_work(
+        df_robot_, df_agents_list, df_obstacles
+    )
+    return df_robot_["social_work"].sum(), df_robot_[["time", "social_work"]]
 
 
 # social work per second or social power
@@ -577,14 +593,19 @@ def social_work_per_second(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    df_obstacles: pd.DataFrame,
     **kwargs,
 ) -> float:
     """Compute the cumulative social work employed in this planner per second"""
-    df_robot["social_work"] = social_work(df_robot, df_agents_list)
+    df_robot_ = df_robot.copy()
+    _, df_social_work = social_work(
+        df_agents_list=df_agents_list, df_robot=df_robot_, df_obstacles=df_obstacles
+    )
+    df_robot_["social_work"] = df_social_work["social_work"]
     return (
-        df_robot["social_work"].sum()
-        / (df_robot["time"].iloc[-1] - df_robot["time"].iloc[0]),
-        df_robot[["time", "social_work"]],
+        df_robot_["social_work"].sum()
+        / (df_robot_["time"].iloc[-1] - df_robot_["time"].iloc[0]),
+        df_robot_[["time", "social_work"]],
     )
 
 
@@ -598,9 +619,9 @@ def obstacle_force_on_agents(
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the agents"""
     for df_agent in df_agents_list:
-        df_agent["obstacle_force_norm"] = modulus_obstacle_force(df_agent, df_obstacles)
-    # mean force on agents
-    # combine all agents
+        df_agent[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
+            df_agent, df_obstacles
+        )
     df_agents = combine_df_agents(df_agents_list)
     return (
         np.mean([df_agent["obstacle_force_norm"].sum() for df_agent in df_agents_list]),
@@ -622,10 +643,13 @@ def obstacle_force_on_robot(
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot"""
-    df_robot["obstacle_force_norm"] = modulus_obstacle_force(df_robot, df_obstacles)
+    df_robot_ = df_robot.copy()
+    df_robot_[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
+        df_robot_, df_obstacles
+    )
     return (
-        df_robot["obstacle_force_norm"].sum(),
-        df_robot[["time", "obstacle_force_norm"]],
+        df_robot_["obstacle_force_norm"].sum(),
+        df_robot_[["time", "obstacle_force_norm"]],
     )
 
 
@@ -645,15 +669,18 @@ def static_obs_collision(
     df_robot: pd.DataFrame,
     *args,
     df_obstacles: pd.DataFrame,
-    dist_threshold: float = 0.5,
+    distance_threshold: float = 0.5,
     **kwargs,
 ) -> int:
     """Compute the number of times the robot collides with a static obstacle"""
 
     # count the number of times the robot collides with a static obstacle
-    df_robot = find_closest_obstacle(df_robot, df_obstacles)
-    df_robot["collision"] = df_robot["closest_obstacle_distance"] < dist_threshold
-    return df_robot["collision"].sum()
+    df_robot_ = df_robot.copy()
+    df_robot_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = (
+        find_closest_obstacle(df_robot_, df_obstacles)
+    )
+    df_robot_["collision"] = df_robot_["closest_obs_dist"] < distance_threshold
+    return df_robot_["collision"].sum()
 
 
 # Evaluation of Socially-Aware Robot Navigation

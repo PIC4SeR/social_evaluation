@@ -10,7 +10,7 @@ overtaking:
     period_for_diff: 5
     max_velocity: 0.5
     max_angular_velocity: 0.5
-    alpha: 0.5
+    alpha: 0.1
 
   examined_people:
     - U_1.U_1
@@ -27,7 +27,7 @@ passing:
     period_for_diff: 5
     max_velocity: 0.5
     max_angular_velocity: 0.5
-    alpha: 0.5
+    alpha: 0.1
 
   examined_people:
     - U_1.U_1

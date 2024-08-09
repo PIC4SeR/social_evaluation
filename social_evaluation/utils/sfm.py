@@ -10,27 +10,6 @@ def normalize_angle(angle: float) -> float:
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
 
-# import sys
-# from hunav_msgs.msg import Agents
-# from hunav_msgs.msg import Agent
-# from geometry_msgs.msg import Pose
-
-
-# class SFM():
-#     def __init__(self):
-
-# self.forceFactorDesired = 2.0
-# self.forceFactorObstacle = 10
-# self.forceSigmaObstacle = 0.2
-# self.forceFactorSocial = 2.1
-# self.forceFactorGroupGaze = 3.0
-# self.forceFactorGroupCoherence = 2.0
-# self.forceFactorGroupRepulsion = 1.0
-# self.lambda_ = 2.0
-# self.gamma = 0.35
-# self.n = 2.0
-# self.nPrime = 3.0
-# self.relaxationTime = 0.5
 config = {
     "force_factor_desired": 2.0,
     "force_factor_obstacle": 10,
@@ -97,14 +76,17 @@ def compute_obstacle_force(
     force_sigma_obstacle: float = config["force_sigma_obstacle"],
 ) -> pd.DataFrame:
     """Compute the obstacle force for an agent"""
-    df_agent = find_closest_obstacle(df_agent, df_obstacles)
-    df_agent["obstacle_force"] = df_agent.apply(
+    df_agent_ = df_agent.copy()
+    df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = (
+        find_closest_obstacle(df_agent_, df_obstacles)
+    )
+    df_agent_["obstacle_force"] = df_agent_.apply(
         lambda x: force_factor_obstacle
         * np.exp(-x["closest_obs_dist"] / force_sigma_obstacle)
         * (np.array(x[["closest_obs_x", "closest_obs_y"]]) / x["closest_obs_dist"]),
         axis=1,
     )
-    return df_agent["obstacle_force"]
+    return df_agent_["obstacle_force"]
 
 
 def modulus_obstacle_force(
@@ -114,13 +96,14 @@ def modulus_obstacle_force(
     force_sigma_obstacle: float = config["force_sigma_obstacle"],
 ):
     """Compute the obstacle force norm for an agent"""
-    df_agent["obstacle_force"] = compute_obstacle_force(
-        df_agent, df_obstacles, force_factor_obstacle, force_sigma_obstacle
+    df_agent_ = df_agent.copy()
+    df_agent_["obstacle_force"] = compute_obstacle_force(
+        df_agent_, df_obstacles, force_factor_obstacle, force_sigma_obstacle
     )
-    df_agent["obstacle_force_norm"] = df_agent.apply(
+    df_agent_["obstacle_force_norm"] = df_agent_.apply(
         lambda x: np.linalg.norm(x["obstacle_force"]), axis=1
     )
-    return df_agent[["obstacle_force_norm", "obstacle_force"]]
+    return df_agent_[["obstacle_force_norm", "obstacle_force"]]
 
 
 def compute_social_force_two_agents(
@@ -209,6 +192,9 @@ def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     df_agent["social_force"] = df_agent[
         [f"social_force_{i}" for i in range(len(df_agents))]
     ].sum(axis=1)
+    df_agent["social_force"] = df_agent["social_force"].apply(
+        lambda x: np.nan if not isinstance(x, np.ndarray) else x
+    )
     return df_agent["social_force"]
 
 
@@ -222,46 +208,58 @@ def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     )
 
 
-def compute_social_force_2(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
+def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the social force provoked by the agent in examination to the other agents
     """
     for i, agent in enumerate(df_agents):
-        df_agent[f"social_force_{i}"] = compute_social_force_two_agents(agent, df_agent)
-    df_agent["social_force"] = df_agent[
-        [f"social_force_{i}" for i in range(len(df_agents))]
+        df_agent[f"social_force_{i}_dual"] = compute_social_force_two_agents(
+            agent, df_agent
+        )
+    df_agent["social_force_dual"] = df_agent[
+        [f"social_force_{i}_dual" for i in range(len(df_agents))]
     ].sum(axis=1)
-    df_agent["social_force"] = df_agent["social_force"].apply(
+    df_agent["social_force_dual"] = df_agent["social_force_dual"].apply(
         lambda x: np.nan if not isinstance(x, np.ndarray) else x
     )
-    return df_agent["social_force"]
+    return df_agent["social_force_dual"]
 
 
-def modulus_social_force_2(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
+def modulus_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the cumulative modulus of the social force provoked by the agent in the rest of agents
     """
-    df_agent["social_force"] = compute_social_force_2(df_agent, df_agents)
+    df_agent["social_force_dual"] = compute_social_force_dual(df_agent, df_agents)
     return (
-        df_agent["social_force"]
+        df_agent["social_force_dual"]
         .dropna()
         .apply(lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan)
     )
 
 
-def compute_social_work(df_robot: pd.DataFrame, df_agents: List[pd.DataFrame]):
+def compute_social_work(
+    df_robot: pd.DataFrame,
+    df_agents_list: List[pd.DataFrame],
+    df_obstacles: pd.DataFrame,
+) -> pd.DataFrame:
     """
     It computes the social work of the robot in the environment
     plus the social work provoked by the robot in the other agents
     """
-    df_robot["social_force"] = compute_social_force(df_robot, df_agents)
-    df_robot["obstacle_force"] = compute_obstacle_force(df_robot, df_agents)
-    df_robot["wr"] = df_robot["social_force"].apply(np.linalg.norm) + df_robot[
-        "obstacle_force"
-    ].apply(np.linalg.norm)
+    df_robot_ = df_robot.copy()
+    df_robot_["social_force_norm"] = modulus_social_force(df_robot, df_agents_list)
+    df_robot_[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
+        df_robot, df_obstacles
+    )
+    df_robot_["wr"] = df_robot_["social_force_norm"] + df_robot_["obstacle_force_norm"]
 
-    for i, agent in df_agents:
-        df_robot[f"wa_{i}"] = compute_social_force_two_agents(df_robot, agent)
-    df_robot["wa"] = df_robot[[f"wa_{i}" for i in range(len(df_agents))]].sum(axis=1)
+    for i, agent in enumerate(df_agents_list):
+        df_robot_[f"wa_{i}"] = compute_social_force_two_agents(df_robot_, agent)
+    df_robot_["wa"] = df_robot_[[f"wa_{i}" for i in range(len(df_agents_list))]].sum(
+        axis=1
+    )
+    df_robot_["wa"] = df_robot_["wa"].apply(
+        lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan
+    )
 
-    return df_robot["wr"] + df_robot["wa"]
+    return df_robot_["wr"] + df_robot_["wa"]
