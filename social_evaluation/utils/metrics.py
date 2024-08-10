@@ -324,7 +324,7 @@ def person_on_robot_collision(
 ) -> Tuple[int, pd.DataFrame]:
     """Check for collisions between the robot and people"""
     _, person_collisions, df_agents = check_collisions(df_agents_list, df_robot)
-    return person_collisions
+    return person_collisions, df_agents
 
 
 @metric("time_not_moving")
@@ -680,7 +680,7 @@ def static_obs_collision(
         find_closest_obstacle(df_robot_, df_obstacles)
     )
     df_robot_["collision"] = df_robot_["closest_obs_dist"] < distance_threshold
-    return df_robot_["collision"].sum()
+    return df_robot_["collision"].sum(), df_robot_[["time", "collision"]]
 
 
 # Evaluation of Socially-Aware Robot Navigation

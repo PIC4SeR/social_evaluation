@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
 from social_evaluation import utils
+import social_evaluation
 
 import pandas as pd
 from typing import Dict, Any, Union, List, Tuple
@@ -153,18 +154,20 @@ def save_data(data: Dict[str, pd.DataFrame], output_file: Path):
 def main():
     parser = argparse.ArgumentParser()
 
+    package_path = Path(social_evaluation.__file__).parent
+
     parser.add_argument(
         "--config-file",
         type=Path,
         help="Config file for the extraction parameters",
-        default="config/config.yaml",
+        default=package_path.joinpath("config/config.yaml"),
     )
 
     parser.add_argument(
         "--exp-config-file",
         type=Path,
         help="Config file for all the experiments parameters",
-        default="config/experiments_config.yaml",
+        default=package_path.joinpath("config/experiments_config.yaml"),
     )
 
     parser.add_argument(
