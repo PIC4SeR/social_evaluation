@@ -1,0 +1,45 @@
+metrics_config:
+  robot_radius: 0.2
+  agent_radius: 0.2
+  period: 5
+  min_velocity: 0.01
+  min_angular_velocity: 0.02
+  max_accel: 1.0
+  max_jerk: 0.5
+  goal_tolerance: 0.3
+  alpha: 0.1
+  distance_threshold: 0.5
+
+metrics:
+  - time_to_reach_goal
+  - path_length
+  - cumulative_heading_changes
+  - avg_distance_to_closest_person
+  - minimum_distance_to_people
+  - maximum_distance_to_people
+  - intimate_space_intrusions
+  - personal_space_intrusions
+  - social_space_intrusions
+  - public_space_intrusions
+  - group_intimate_space_intrusions
+  - group_personal_space_intrusions
+  - group_social_space_intrusions
+  - group_public_space_intrusions
+  - robot_on_person_collision
+  - person_on_robot_collision
+  - time_not_moving
+  - completed
+  - final_goal_distance
+  - minimum_goal_distance
+  - avg_robot_linear_speed
+  - avg_robot_angular_speed
+  - avg_acceleration
+  - avg_overacceleration
+  - avg_pedestrian_velocity
+  - avg_closest_pedestrian_velocity
+  - social_force_on_agents
+  - social_force_on_robot
+  - social_work
+  - social_work_per_second
+  - obstacle_force_on_agents
+  - obstacle_force_on_robot

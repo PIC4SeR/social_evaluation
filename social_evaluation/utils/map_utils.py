@@ -17,12 +17,6 @@ class GridmapMapCost(Enum):
     UNKNOWN = -1
 
 
-# inline geometry_msgs::msg::Quaternion orientationAroundZAxis(double angle)
-# {
-#   tf2::Quaternion q;
-#   q.setRPY(0, 0, angle);  // void returning function
-#   return tf2::toMsg(q);
-# }
 def orientation_around_z_axis(angle: float) -> np.ndarray:
     """
     Create a quaternion orientation around the Z axis
@@ -154,13 +148,6 @@ def find_closest_obstacle_single(
     """Find the closest obstacle to an agent"""
     df_obstacles_copy = df_obstacles.copy()
 
-    # print(f"the agent{agent}")
-    # print(f"the obstacles{df_obstacles_copy}")
-    # df_obstacles_copy["dist"] = np.linalg.norm(
-    #     np.array(df_obstacles_copy[["x", "y"]])
-    #     - np.array(agent[["position_x", "position_y"]]),
-    #     axis=1,
-    # )
     df_obstacles_copy["dist"] = df_obstacles_copy.apply(
         lambda x: np.linalg.norm(
             np.array([x["x"], x["y"]])
@@ -169,7 +156,6 @@ def find_closest_obstacle_single(
         ),
         axis=1,
     )
-    # print(f"the obstacles{df_obstacles_copy}")
     return df_obstacles_copy.loc[df_obstacles_copy["dist"].idxmin()]
 
 

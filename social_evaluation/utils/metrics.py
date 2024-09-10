@@ -91,10 +91,16 @@ def total_time(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    goal: Tuple[float, float],
+    goal_tolerance: float = 0.3,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> float:
     """Compute the total time of the robot's trajectory"""
-    return df_robot.time.iloc[-1] - df_robot.time.iloc[0]
+    return (
+        time_goal_reached(df_robot, goal, goal_tolerance, robot_radius)
+        - df_robot.time.iloc[0]
+    )
 
 
 @metric("path_length")
@@ -120,8 +126,8 @@ def cumulative_heading_changes(
 ) -> float:
     """Compute the cumulative heading changes of the robot"""
     # normalize the angles
-    yaw = df_robot.yaw.apply(normalize_angle)
-
+    df_robot_ = df_robot.copy().dropna()
+    yaw = df_robot_.yaw.apply(normalize_angle)
     return np.sum(np.abs(np.diff(yaw)))
 
 
@@ -374,8 +380,9 @@ def final_goal_distance(
     **kwargs,
 ) -> float:
     """Compute the distance between the last robot position and the target position."""
-    x = df_robot.position_x.iloc[-1]
-    y = df_robot.position_y.iloc[-1]
+    df_robot_ = df_robot.copy().dropna()
+    x = df_robot_.position_x.iloc[-1]
+    y = df_robot_.position_y.iloc[-1]
     return np.linalg.norm([x - goal[0], y - goal[1]])
 
 
@@ -388,8 +395,9 @@ def minimum_goal_distance(
     **kwargs,
 ) -> float:
     """Compute the closest the robot passes to the target position."""
-    x = df_robot.position_x
-    y = df_robot.position_y
+    df_robot_ = df_robot.copy().dropna()
+    x = df_robot_.position_x
+    y = df_robot_.position_y
     return np.min(np.linalg.norm([x - goal[0], y - goal[1]], axis=1))
 
 
@@ -597,7 +605,7 @@ def social_work_per_second(
     **kwargs,
 ) -> float:
     """Compute the cumulative social work employed in this planner per second"""
-    df_robot_ = df_robot.copy()
+    df_robot_ = df_robot.copy().dropna()
     _, df_social_work = social_work(
         df_agents_list=df_agents_list, df_robot=df_robot_, df_obstacles=df_obstacles
     )

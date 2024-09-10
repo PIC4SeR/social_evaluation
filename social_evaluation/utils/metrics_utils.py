@@ -149,7 +149,7 @@ def distance_to_closest_person(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     robot_radius: float = 0.3,
-    agent_radius: float = 0.3,
+    agent_radius: float = 0.2,
 ) -> pd.DataFrame:
     """Compute the distance to the closest person"""
     df_agents = combine_df_robot_agents(df_robot, df_agents_list)
