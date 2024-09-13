@@ -14,6 +14,8 @@ import numpy as np
 
 def evaluate_algorithm(
     paths: List[PosixPath],
+    experiment: str,
+    algorithm: str,
     data: Dict[str, Any],
     config: Dict[str, Any],
     metrics: Dict[str, Any],
@@ -26,10 +28,16 @@ def evaluate_algorithm(
     :return: Dataframe with the results of the evaluation for the algorithm
     """
     series = []
-    for path in paths:
+    # print(paths)
+    # print(experiment)
+    # print(algorithm)
+    # raise ValueError
+    for i, path in enumerate(paths):
         results, _ = evaluate_selected_metrics(data[path], config, metrics)
+        results["experiment"] = experiment
+        results["algorithm"] = algorithm
+        results["run"] = i + 1
         series.append(results)
-
     df = pd.DataFrame(series)
     return df
 
@@ -44,7 +52,7 @@ def evaluate_selected_metrics(
     :return: Dictionary with the results
     """
     # Extract the data from the dictionary
-    print(data.keys())
+    # print(data.keys())
     df_odometry = data["odometry"]
     df_people = data["people"]
     df_agents_list = data["agents"]
@@ -120,13 +128,13 @@ def main():
         "--config-file", type=Path, help="Path to the configuration file"
     )
     parser.add_argument("--data-file", type=Path, help="Path to the data file")
-    parser.add_argument("--output-file", type=Path, help="Path to the output file")
     parser.add_argument(
-        "--metrics-file",
+        "--output-file",
         type=Path,
-        help="Path to the metrics file",
+        help="Path to the output file",
         default="metrics.pickle",
     )
+    parser.add_argument("--metrics-file", type=Path, help="Path to the metrics file")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
@@ -139,7 +147,6 @@ def main():
     with open(args.data_file, "rb") as file:
         data = pickle.load(file)
 
-    results = {}
     experiment_names = list(config["experiment_names"])
     algorithms = list(config["algorithms"])
     metrics_config = metrics["metrics_config"]
@@ -151,15 +158,19 @@ def main():
             paths_list[experiment_name + "_" + algorithm] = [
                 k for k in data.keys() if experiment_name in k and algorithm in k
             ]
+    results_list = []
 
     for path in paths_list:
         print(path)
-        print(paths_list[path])
-        results[path] = evaluate_algorithm(
-            paths_list[path], data, metrics_config, metrics
+        experiment, algorithm = path.split("_")
+        results_list.append(
+            evaluate_algorithm(
+                paths_list[path], experiment, algorithm, data, config, metrics
+            )
         )
 
-    # aggregate the results for the single experiments
+    # results = pd.DataFrame(results_list)
+    results = pd.concat(results_list, ignore_index=True)
 
     with open(args.output_file, "wb") as file:
         pickle.dump(results, file)

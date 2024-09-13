@@ -41,11 +41,11 @@ metrics = {}
 
 
 def metric(name: str) -> callable:
-    def decorator(func) -> callable:
+    def wrapper(func) -> callable:
         metrics[name] = func
         return func
 
-    return decorator
+    return wrapper
 
 
 def normalize_angle(angle: float) -> float:
