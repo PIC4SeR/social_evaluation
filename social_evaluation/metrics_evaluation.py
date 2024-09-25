@@ -156,19 +156,25 @@ def main():
     for experiment_name in experiment_names:
         for algorithm in algorithms:
             paths_list[experiment_name + "_" + algorithm] = [
-                k for k in data.keys() if experiment_name in k and algorithm in k
+                k for k in data.keys() if ((experiment_name in k.split('/')) and (algorithm in k.split('/')))
             ]
     results_list = []
+    for key, value in paths_list.items():
+        print(f'experiment and algo: {key}')
+        for i, scenario in enumerate(value):
+            print(f"\tscenario_{i+1}: {scenario}")
 
     for path in paths_list:
-        print(path)
         experiment, algorithm = path.split("_")
+        print("\n####################################################")
+        print(f"Evaluating experiment:{experiment_name}")
+        print(f"Evaluating algorithm:{algorithm}")
+        print("####################################################\n")
         results_list.append(
             evaluate_algorithm(
-                paths_list[path], experiment, algorithm, data, config, metrics
+                paths_list[path], experiment, algorithm, data, metrics_config, metrics
             )
         )
-
     # results = pd.DataFrame(results_list)
     results = pd.concat(results_list, ignore_index=True)
 

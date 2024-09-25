@@ -59,7 +59,7 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
     df_agents.rename(columns={"time_agent0": "time"}, inplace=True)
     for i, df_agent in enumerate(df_agents_list[1:]):
         df_agents = df_agents.merge(
-            df_agent, on="time", how="outer", suffixes=("", f"_agent{i}")
+            df_agent.add_suffix(f"_agent{i+1}").rename(columns={f"time_agent{i+1}": "time"}), on="time", how="outer"
         )
     df_agents.infer_objects(copy=False)
 

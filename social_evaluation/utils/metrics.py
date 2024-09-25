@@ -103,7 +103,7 @@ def total_time(
             - df_robot.time.iloc[0]
         )
     else:
-        return df_robot.time.iloc[-1] - df_robot.time.iloc[0] 
+        return df_robot.dropna().time.iloc[-1] - df_robot.time.iloc[0] 
 
 
 @metric("path_length")
