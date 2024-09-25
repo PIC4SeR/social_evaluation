@@ -97,10 +97,13 @@ def total_time(
     **kwargs,
 ) -> float:
     """Compute the total time of the robot's trajectory"""
-    return (
-        time_goal_reached(df_robot, goal, goal_tolerance, robot_radius)
-        - df_robot.time.iloc[0]
-    )
+    if time_goal_reached(df_robot, goal, goal_tolerance, robot_radius) is not None:
+        return (
+            time_goal_reached(df_robot, goal, goal_tolerance, robot_radius)
+            - df_robot.time.iloc[0]
+        )
+    else:
+        return df_robot.time.iloc[-1] - df_robot.time.iloc[0] 
 
 
 @metric("path_length")
