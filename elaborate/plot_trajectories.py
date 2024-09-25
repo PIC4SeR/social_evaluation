@@ -258,6 +258,8 @@ plt.show()
 # # sm.set_array([])
 # # plt.colorbar(sm)
 
+# TODO plot using a animation
+
 
 # # %%
 
