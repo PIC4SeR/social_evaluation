@@ -266,7 +266,7 @@ def time_goal_reached(
     goal_position: Tuple[float, float],
     threshold: float = 0.5,
     robot_radius: float = 0.3,
-) -> float:
+) -> Union[float,None]:
     df["distance_to_goal"] = (
         (df["position_x"] - goal_position[0]) ** 2
         + (df["position_y"] - goal_position[1]) ** 2
