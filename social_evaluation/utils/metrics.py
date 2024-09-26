@@ -103,7 +103,7 @@ def total_time(
             - df_robot.time.iloc[0]
         )
     else:
-        return df_robot.dropna().time.iloc[-1] - df_robot.time.iloc[0] 
+        return df_robot.dropna().time.iloc[-1] - df_robot.time.iloc[0]
 
 
 @metric("path_length")
@@ -401,7 +401,7 @@ def minimum_goal_distance(
     df_robot_ = df_robot.copy().dropna()
     x = df_robot_.position_x
     y = df_robot_.position_y
-    return np.min(np.linalg.norm([x - goal[0], y - goal[1]], axis=1))
+    return np.min(np.linalg.norm([x - goal[0], y - goal[1]], axis=0))
 
 
 # SocNavBench: A Grounded Simulation Testing Framework for Evaluating Social Navigation
