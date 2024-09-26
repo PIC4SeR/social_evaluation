@@ -107,6 +107,7 @@ def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
         for person in msg.people:
             people_names.add(person.name)
     df = pd.DataFrame(columns=["time", *people_names])
+    df.time = df.time.astype(float)
     series_list = []
     for msg in people_msgs:
         time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -134,6 +135,9 @@ def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
         )
     df_people = pd.DataFrame(series_list)
     df = df.combine_first(df_people)
+    df.behaviour = df.behaviour.astype(str)
+    df.group_id = df.group_id.astype(str)
+    df.id = df.id.astype(str)
     return df
 
 
@@ -225,7 +229,6 @@ def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
     df_transforms = pd.DataFrame(series_list)
     df = df.combine_first(df_transforms)
     df.sort_values(by="time", inplace=True, ignore_index=True)
-    # df.fillna(method="ffill", inplace=True)
     df.ffill(inplace=True)
     df.dropna(inplace=True)
     df.reset_index(drop=True, inplace=True)
@@ -234,6 +237,7 @@ def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
 
 def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
     df_person = df[["time", person_name]]
+    df_person.time = df_person.time.astype(float)
     df_person = df_person.dropna()
     df_person = df_person.reset_index(drop=True)
     df_person["position_x"] = df_person[person_name].apply(lambda x: x["position_x"])
@@ -244,9 +248,13 @@ def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
     df_person["angular_velocity_z"] = df_person[person_name].apply(
         lambda x: x["angular_velocity_z"]
     )
-    df_person["behaviour"] = df_person[person_name].apply(lambda x: x["behaviour"])
-    df_person["group_id"] = df_person[person_name].apply(lambda x: x["group_id"])
-    df_person["id"] = df_person[person_name].apply(lambda x: x["id"])
+    df_person["behaviour"] = (
+        df_person[person_name].apply(lambda x: x["behaviour"]).astype(str)
+    )
+    df_person["group_id"] = (
+        df_person[person_name].apply(lambda x: x["group_id"]).astype(str)
+    )
+    df_person["id"] = df_person[person_name].apply(lambda x: x["id"]).astype(str)
     df_person.drop(columns=[person_name], inplace=True)
     return df_person
 
@@ -266,7 +274,7 @@ def time_goal_reached(
     goal_position: Tuple[float, float],
     threshold: float = 0.5,
     robot_radius: float = 0.3,
-) -> Union[float,None]:
+) -> Union[float, None]:
     df["distance_to_goal"] = (
         (df["position_x"] - goal_position[0]) ** 2
         + (df["position_y"] - goal_position[1]) ** 2

@@ -63,6 +63,14 @@ def evaluate_selected_metrics(
     transforms = data["transforms"]
     goal = data["goal"]
 
+    # check dtypes
+    for df in df_agents_list:
+        df.time = df.time.astype(float)
+        df.behaviour = df.behaviour.astype(str)
+        df.id = df.id.astype(str)
+        df.group_id = df.group_id.astype(str)
+    df_people.time = df_people.time.astype(float)
+
     metrics_list = metrics["metrics"]
 
     # Evaluate the metrics

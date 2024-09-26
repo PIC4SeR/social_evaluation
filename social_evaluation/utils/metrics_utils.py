@@ -65,7 +65,6 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
             on="time",
             how="outer",
         )
-    df_agents.infer_objects(copy=False)
 
     attributes = [
         attribute
@@ -75,7 +74,6 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
         and "behaviour" not in attribute
     ]
     df_agents.infer_objects(copy=False)
-
     df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
         method="cubic", order=3
     )
