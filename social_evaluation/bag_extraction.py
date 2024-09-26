@@ -131,6 +131,7 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
 
 def extract_obstacle_data(
     map_file: Path,
+    pool_size: int = 1,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Extract the map data from the map file
     : param map_file: Path to the map file
@@ -138,7 +139,9 @@ def extract_obstacle_data(
     """
 
     occupancy_gridmap, metadata = utils.get_map_data(map_file)
-    df_obstacles = utils.retrieve_obstacle_positions(occupancy_gridmap, metadata)
+    df_obstacles = utils.retrieve_obstacle_positions(
+        occupancy_gridmap, metadata, pool_size
+    )
     return df_obstacles, occupancy_gridmap
 
 

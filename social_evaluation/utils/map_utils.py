@@ -101,7 +101,7 @@ def image_to_occupancy_gridmap(im: np.ndarray, metadata: Dict[str, any]) -> np.n
 
 
 def retrieve_obstacle_positions(
-    occupancy_gridmap: np.ndarray, metadata: Dict[str, any]
+    occupancy_gridmap: np.ndarray, metadata: Dict[str, any], pool_size: int = 1
 ) -> pd.DataFrame:
     """Retrieve the positions of the obstacles in the occupancy gridmap
 
@@ -113,14 +113,23 @@ def retrieve_obstacle_positions(
     # Get map data
     resolution = metadata["resolution"]
     origin = np.array(metadata["origin"])
+    width = metadata["width"]
+    height = metadata["height"]
+    if pool_size > 1:
+        new_occupancy_gridmap = max_pooling_gridmap(
+            occupancy_gridmap, pool_size=pool_size
+        )
+        height = new_occupancy_gridmap.shape[0]
+        width = new_occupancy_gridmap.shape[1]
+        resolution = resolution * pool_size
 
     orientation = orientation_around_z_axis(origin[2])
 
     # Get obstacle positions
     obstacle_positions = []
 
-    for y in range(metadata["height"]):
-        for x in range(metadata["width"]):
+    for y in range(height):
+        for x in range(width):
             if occupancy_gridmap[y, x] == GridmapMapCost.OCCUPIED.value:
                 obstacle_positions.append(
                     {
@@ -128,7 +137,7 @@ def retrieve_obstacle_positions(
                         "y": round(
                             -y * resolution
                             + origin[1]
-                            + resolution * metadata["height"],
+                            + resolution * height,  # Invert y axis
                             1,
                         ),
                     }
@@ -139,24 +148,56 @@ def retrieve_obstacle_positions(
     )
 
 
+def max_pooling_gridmap(gridmap: np.ndarray, pool_size: int = 4) -> np.ndarray:
+    """Max pooling of a gridmap
+
+    :param gridmap: Gridmap to pool
+    :param pool_size: Pool size
+    :return: Pooled gridmap
+    """
+    # Get the size of the gridmap
+    height, width = gridmap.shape
+
+    # Compute the size of the pooled gridmap
+    pooled_height = height // pool_size
+    pooled_width = width // pool_size
+
+    # Create the pooled gridmap
+    pooled_gridmap = np.zeros((pooled_height, pooled_width))
+
+    # Pool the gridmap
+    for y in range(pooled_height):
+        for x in range(pooled_width):
+            pooled_gridmap[y, x] = np.max(
+                gridmap[
+                    y * pool_size : (y + 1) * pool_size,
+                    x * pool_size : (x + 1) * pool_size,
+                ]
+            )
+
+    return pooled_gridmap
+
+
 def find_closest_obstacle_single(
     agent: pd.Series,
-    df_obstacles: pd.DataFrame,
+    obstacles: np.ndarray,
     robot_radius: float = 0.2,
     max_radius: float = 10.0,
-):
+) -> pd.Series:
     """Find the closest obstacle to an agent"""
-    df_obstacles_copy = df_obstacles.copy()
-
-    df_obstacles_copy["dist"] = df_obstacles_copy.apply(
-        lambda x: np.linalg.norm(
-            np.array([x["x"], x["y"]])
-            - np.array([agent["position_x"], agent["position_y"]]),
-            axis=0,
-        ),
-        axis=1,
+    dist_obstacles = np.linalg.norm(
+        obstacles - np.array([agent["position_x"], agent["position_y"]]), axis=1
     )
-    return df_obstacles_copy.loc[df_obstacles_copy["dist"].idxmin()]
+    min_dist = dist_obstacles.min()
+    closest_obs = obstacles[dist_obstacles.argmin()]
+
+    return pd.Series(
+        {
+            "closest_obs_x": closest_obs[0],
+            "closest_obs_y": closest_obs[1],
+            "closest_obs_dist": min_dist,
+        }
+    )
 
 
 def find_closest_obstacle(
@@ -168,11 +209,10 @@ def find_closest_obstacle(
     """Find the closest obstacle to an agent"""
     df_agent_ = df_agent.copy()
     df_agent_.dropna(subset=["time", "position_x"], inplace=True)
+    obstacles = np.array(df_obstacles[["x", "y"]])
 
     df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = df_agent_.apply(
-        lambda x: find_closest_obstacle_single(
-            x, df_obstacles, robot_radius, max_radius
-        ),
+        lambda x: find_closest_obstacle_single(x, obstacles, robot_radius, max_radius),
         axis=1,
     )
     return df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]]
