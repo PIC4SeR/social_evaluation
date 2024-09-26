@@ -10,6 +10,7 @@ import yaml
 import pickle
 import os
 import numpy as np
+from tqdm import tqdm
 
 
 def evaluate_algorithm(
@@ -28,11 +29,13 @@ def evaluate_algorithm(
     :return: Dataframe with the results of the evaluation for the algorithm
     """
     series = []
-    # print(paths)
-    # print(experiment)
-    # print(algorithm)
-    # raise ValueError
-    for i, path in enumerate(paths):
+    for i, path in enumerate(
+        tqdm(
+            paths,
+            desc=f"Evaluating scenarios for {experiment} with {algorithm}",
+            leave=False,
+        )
+    ):
         results, _ = evaluate_selected_metrics(data[path], config, metrics)
         results["experiment"] = experiment
         results["algorithm"] = algorithm
@@ -109,7 +112,7 @@ def evaluate_metrics(
             transforms["map_to_base_link"],
             df_obstacles=df_obstacles,
             goal=goal,
-            **config
+            **config,
         )
         if isinstance(result, Tuple):
             metrics_results[metric] = result[0]
@@ -156,20 +159,18 @@ def main():
     for experiment_name in experiment_names:
         for algorithm in algorithms:
             paths_list[experiment_name + "_" + algorithm] = [
-                k for k in data.keys() if ((experiment_name in k.split('/')) and (algorithm in k.split('/')))
+                k
+                for k in data.keys()
+                if ((experiment_name in k.split("/")) and (algorithm in k.split("/")))
             ]
     results_list = []
     for key, value in paths_list.items():
-        print(f'experiment and algo: {key}')
+        print(f"experiment and algo: {key} with {len(value)} scenarios")
         for i, scenario in enumerate(value):
             print(f"\tscenario_{i+1}: {scenario}")
 
-    for path in paths_list:
+    for path in tqdm(paths_list, desc="Evaluating experiments", leave=False):
         experiment, algorithm = path.split("_")
-        print("\n####################################################")
-        print(f"Evaluating experiment:{experiment_name}")
-        print(f"Evaluating algorithm:{algorithm}")
-        print("####################################################\n")
         results_list.append(
             evaluate_algorithm(
                 paths_list[path], experiment, algorithm, data, metrics_config, metrics
