@@ -66,6 +66,7 @@ db.sqlite3-journal
 
 # Data files
 *.pickle
+*.pkl
 
 # Flask stuff:
 instance/
