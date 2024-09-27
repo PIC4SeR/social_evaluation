@@ -151,3 +151,48 @@ def animate_trajectories(
     cb = plt.colorbar(artists[-1][0], ax=ax)
     cb.ax.set_ylabel("Velocity [m/s]")
     return ani
+
+
+def plot_trajectories(
+    df_trajectories: pd.DataFrame,
+    ax: plt.Axes,
+    time_freq: float = 0.1,
+    time_start: float = -np.inf,
+    time_end: float = np.inf,
+    fig: plt.Figure = None,
+) -> ArtistAnimation:
+    """Plot the trajectories
+    :param df_trajectories: Dataframe with the trajectories
+    :param ax: Matplotlib axis
+    :param time_freq: Frequency of the time to plot
+    :param time_start: Start time
+    :param time_end: End time
+    """
+
+    # Filter the data
+    df_trajectories = df_trajectories[
+        (df_trajectories["time"] >= time_start) & (df_trajectories["time"] <= time_end)
+    ]
+
+    # agents
+    agent_num = df_trajectories.keys().str.contains("position_x_agent").sum()
+    # Set the limits of the axis
+    pu.set_ax_limits(df_trajectories, agent_num, ax)
+    # find the interval for the velocity
+    norm = pu.find_norm_for_velocity(df_trajectories, agent_num)
+
+    image_robot, image_agents_walk, image_agents_stand = pu.get_images_for_experiment(
+        agent_num
+    )
+
+    ani = animate_trajectories(
+        df_trajectories,
+        fig,
+        ax,
+        agent_num,
+        norm,
+        image_robot,
+        image_agents_walk,
+        static_image_size=4,
+    )
+    return ani

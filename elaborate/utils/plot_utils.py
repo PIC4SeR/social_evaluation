@@ -15,6 +15,9 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.animation import FuncAnimation, ArtistAnimation
 from tqdm import trange
 
+pkg_dir = Path(__file__).resolve().parents[1]
+images_dir = Path(pkg_dir, "images")
+
 
 def normalize_image(image: np.ndarray) -> np.ndarray:
     """
@@ -77,3 +80,106 @@ def create_annotation_box(
         image, desired_width_px=desired_width_px, angle=angle, alpha=alpha
     )
     return AnnotationBbox(image_rot, (x, y), frameon=False)
+
+
+def plot_map(
+    map: np.ndarray,
+    ax: plt.Axes,
+    resolution: float = 0.05,
+    origin: Tuple[float, float] = (-8.41, -12.7),
+) -> None:
+    """Plot the map
+    :param map: Numpy array with the map
+    """
+    color_map = mcolors.ListedColormap(["white", "black"])
+    extent = [
+        origin[0],
+        origin[0] + map.shape[1] * resolution,
+        origin[1],
+        origin[1] + map.shape[0] * resolution,
+    ]
+    # use a resolution of 0.1 and set the origin of the map to the bottom left corner
+    ax.imshow(map, cmap=color_map, extent=extent)
+
+
+def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.3) -> None:
+    """Plot the goal
+    :param goal: Tuple with the goal position
+    """
+    goal_image_path = Path(images_dir, "goal.png")
+    image_goal = plt.imread(goal_image_path, format="png")
+
+    desired_width = 2 * radius
+    desired_width_px = meters_to_pixels(desired_width, ax)
+
+    ab_goal = AnnotationBbox(
+        create_image_marker(image_goal, desired_width_px=desired_width_px),
+        goal,
+        frameon=False,
+    )
+    ax.add_artist(ab_goal)
+
+
+def retrieve_image_from_path(image_path: str) -> np.ndarray:
+    return np.rot90(plt.imread(image_path, format="png"), 3)
+
+
+def get_images_for_experiment(
+    agent_num: int,
+) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+    robot_image_path = Path(pkg_dir, "images", "robot.png")
+    robot_image = retrieve_image_from_path(robot_image_path)
+
+    agents_image_path_stand = [
+        Path(pkg_dir, "images", f"agent{i}_stand.png") for i in range(agent_num)
+    ]
+    image_agents_walk = [
+        retrieve_image_from_path(image_path) for image_path in agents_image_path_stand
+    ]
+    agents_image_path_walk = [
+        Path(pkg_dir, "images", f"agent{i}_walk.png") for i in range(agent_num)
+    ]
+    image_agents_stand = [
+        retrieve_image_from_path(image_path) for image_path in agents_image_path_stand
+    ]
+
+    return robot_image, image_agents_walk, image_agents_stand
+
+
+def set_ax_limits(df_trajectories: pd.DataFrame, agent_num: int, ax: plt.Axes) -> None:
+    min_x = df_trajectories["position_x"].min()
+    max_x = df_trajectories["position_x"].max()
+    min_y = df_trajectories["position_y"].min()
+    max_y = df_trajectories["position_y"].max()
+
+    for i in range(0, agent_num):
+        min_x = min(min_x, df_trajectories[f"position_x_agent{i}"].min())
+        max_x = max(max_x, df_trajectories[f"position_x_agent{i}"].max())
+        min_y = min(min_y, df_trajectories[f"position_y_agent{i}"].min())
+        max_y = max(max_y, df_trajectories[f"position_y_agent{i}"].max())
+
+    ax.set_xlim(min_x - 1, max_x + 1)
+    ax.set_ylim(min_y - 1, max_y + 1)
+
+
+def find_norm_for_velocity(
+    df_trajectories: pd.DataFrame, agent_num: int
+) -> mcolors.Normalize:
+
+    df_trajectories.dropna(subset=["velocity_x", "velocity_y"], inplace=True)
+    df_trajectories["velocity"] = np.linalg.norm(
+        df_trajectories[["velocity_x", "velocity_y"]].values, axis=1
+    )
+
+    min_velocity = df_trajectories["velocity"].min()
+    max_velocity = df_trajectories["velocity"].max()
+
+    for i in range(0, agent_num):
+        df_trajectories[f"velocity_agent{i}"] = np.linalg.norm(
+            df_trajectories[[f"velocity_x_agent{i}", f"velocity_y_agent{i}"]].values,
+            axis=1,
+        )
+        min_velocity = min(min_velocity, df_trajectories[f"velocity_agent{i}"].min())
+        max_velocity = max(max_velocity, df_trajectories[f"velocity_agent{i}"].max())
+
+    return mcolors.Normalize(vmin=min_velocity, vmax=max_velocity)
