@@ -14,9 +14,24 @@ from social_evaluation.utils.metrics_utils import combine_df_robot_agents
 from scipy.ndimage import rotate
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.animation import FuncAnimation, ArtistAnimation
+from tqdm import trange
 
 
 # %%
+
+
+def normalize_image(image: np.ndarray) -> np.ndarray:
+    """
+    Normalize image data to ensure valid RGB ranges.
+    Floats are clipped to [0, 1], integers to [0, 255].
+    """
+    if image.dtype == np.float32 or image.dtype == np.float64:
+        # Clip float data to [0, 1]
+        image = np.clip(image, 0, 1)
+    elif image.dtype == np.int32 or image.dtype == np.int64 or np.any(image > 255):
+        # Clip integer data to [0, 255] and convert to uint8
+        image = np.clip(image, 0, 255).astype(np.uint8)
+    return image
 
 
 def plot_experiment_aggregate(data: dict, exp: List[str], ax: plt.Axes):
@@ -27,10 +42,184 @@ def plot_experiment_aggregate(data: dict, exp: List[str], ax: plt.Axes):
     pass
 
 
-def create_image_marker(image, zoom=0.2, angle=0, alpha=1):
-    rotated_image = rotate(image, np.degrees(angle), reshape=True)
-    # return OffsetImage(rotated_image.astype(np.uint8), zoom=zoom, alpha=alpha)
-    return OffsetImage(rotated_image, zoom=zoom, alpha=alpha)
+def create_line_collection(
+    x: np.ndarray,
+    y: np.ndarray,
+    velocity: np.ndarray,
+    norm: mcolors.Normalize,
+    cmap: str = "viridis",
+) -> mcoll.LineCollection:
+    points = np.array([x, y]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    lc = mcoll.LineCollection(segments, cmap=cmap, norm=norm)
+    lc.set_array(velocity)
+    return lc
+
+
+def create_annotation_box(
+    image: np.ndarray,
+    x: float,
+    y: float,
+    desired_size: float = 100,
+    angle: float = 0,
+    alpha: float = 1,
+) -> AnnotationBbox:
+    image_rot = create_image_marker(
+        image, desired_size=desired_size, angle=angle, alpha=alpha
+    )
+    return AnnotationBbox(image_rot, (x, y), frameon=False)
+
+
+# Function to handle the plotting of an agent (robot or person)
+def plot_agent(
+    ax: plt.Axes,
+    df_trajectories: pd.DataFrame,
+    i: int,
+    artist: List,
+    norm: mcolors.Normalize,
+    image_agent: np.ndarray,
+    static_image_size: int = 5,
+    desired_size: float = 0.3,
+) -> None:
+    x = np.array(df_trajectories["position_x"].iloc[: i + 1])
+    y = np.array(df_trajectories["position_y"].iloc[: i + 1])
+
+    # Get the bounding box of the axes in display (pixel) coordinates
+    bbox = ax.get_window_extent()
+
+    # Calculate the pixel width and height of the axes
+    ax_xbounds = ax.get_xbound()
+    ax_width = ax_xbounds[1] - ax_xbounds[0]
+    ax_width_in_pixels = bbox.width
+
+    desired_size_pixels = desired_size * ax_width_in_pixels / ax_width
+
+    # Plot the line collection for the agnet
+    lc_agent = create_line_collection(
+        x, y, df_trajectories["velocity"].iloc[: i + 1], norm
+    )
+    artist.append(ax.add_collection(lc_agent))
+
+    # Add the agent image with rotation
+    ab = create_annotation_box(
+        image_agent,
+        x[-1],
+        y[-1],
+        desired_size=desired_size_pixels,
+        angle=df_trajectories["yaw"].iloc[i],
+        alpha=0.5 + 0.5 * i / len(df_trajectories),
+    )
+    artist.append(ax.add_artist(ab))
+
+    if static_image_size > 0:
+        len_df = len(df_trajectories)
+        for j in np.arange(0, len_df, len_df // static_image_size):
+            if j < i:
+                image_agent_rot = create_image_marker(
+                    image_agent,
+                    desired_size=desired_size_pixels,
+                    angle=df_trajectories["yaw"].iloc[j],
+                    alpha=0.3 + 0.7 * (j / len_df),
+                )
+                ab_agent = AnnotationBbox(
+                    image_agent_rot,
+                    (
+                        x[j],
+                        y[j],
+                    ),
+                    frameon=False,
+                )
+                artist.append(ax.add_artist(ab_agent))
+
+
+def plot_agents(
+    ax: plt.Axes,
+    df_trajectories: pd.DataFrame,
+    i: int,
+    artist: list,
+    agent_num: int,
+    norm: mcolors.Normalize,
+    image_agents_walk: List[np.ndarray],
+    static_image_size: int = 5,
+    desired_size: float = 0.3,
+) -> None:
+    for j in range(agent_num):
+        plot_agent(
+            ax,
+            df_trajectories[
+                [
+                    f"position_x_agent{j}",
+                    f"position_y_agent{j}",
+                    f"velocity_agent{j}",
+                    f"yaw_agent{j}",
+                ]
+            ].rename(
+                columns={
+                    f"position_x_agent{j}": "position_x",
+                    f"position_y_agent{j}": "position_y",
+                    f"velocity_agent{j}": "velocity",
+                    f"yaw_agent{j}": "yaw",
+                }
+            ),
+            i,
+            artist,
+            norm,
+            image_agents_walk[j],
+            static_image_size,
+            desired_size,
+        )
+
+
+def create_image_marker(
+    image: np.ndarray, desired_size: float = 100, angle: float = 0, alpha: float = 1
+) -> OffsetImage:
+    rotated_image = normalize_image(rotate(image, np.degrees(angle), reshape=True))
+    return OffsetImage(
+        rotated_image,
+        zoom=desired_size / max(image.shape[0], image.shape[1]),
+        alpha=alpha,
+    )
+
+
+def animate_trajectories(
+    df_trajectories: pd.DataFrame,
+    ax: plt.Axes,
+    agent_num: int,
+    norm: mcolors.Normalize,
+    image_robot: np.ndarray,
+    image_agents_walk: List[np.ndarray],
+    static_image_size: int = 4,
+) -> ArtistAnimation:
+    artists = []
+    for i in trange(len(df_trajectories)):
+        artist = []
+        plot_agent(
+            ax,
+            df_trajectories[["position_x", "position_y", "velocity", "yaw"]],
+            i,
+            artist,
+            norm,
+            image_robot,
+            static_image_size,
+            desired_size=0.3,
+        )
+        plot_agents(
+            ax,
+            df_trajectories,
+            i,
+            artist,
+            agent_num,
+            norm,
+            image_agents_walk,
+            static_image_size,
+            desired_size=0.3,
+        )
+        artists.append(artist)
+
+    ani = ArtistAnimation(fig, artists, interval=100, blit=True)
+    cb = plt.colorbar(artists[-1][0], ax=ax)
+    cb.ax.set_ylabel("Velocity [m/s]")
+    return ani
 
 
 def plot_from_start_up_to_time(data: dict, exp: str, time: float, ax: plt.Axes):
@@ -88,8 +277,6 @@ def plot_data(
     """
     plot_map(map, ax)
     plot_goal(goal, ax, color="red")
-    # plot_agents(df_agents_list, ax)
-    # plot_transforms(transforms, ax)
     df_robot = transforms["map_to_base_link"]
     df_trajectories = combine_df_robot_agents(
         df_robot=df_robot, df_agents_list=df_agents_list
@@ -97,23 +284,6 @@ def plot_data(
 
     ani = plot_trajectories(df_trajectories, ax)
     return ani
-
-
-def update_robot(frame, ab, df):
-    # update the position of the robot
-    ab.xy = (
-        df["position_x"].iloc[frame],
-        df["position_y"].iloc[frame],
-    )
-    # update the angle of the robot
-    image_robot = plt.imread(
-        "/home/andrea/workspaces/appl_ws/social_evaluation/elaborate/images/robot.png"
-    )
-    image_robot = create_image_marker(
-        image_robot, zoom=0.015, angle=df["yaw"].iloc[frame]
-    )
-    # ab.set_offset(image_robot)
-    return (ab,)
 
 
 def plot_trajectories(
@@ -196,127 +366,19 @@ def plot_trajectories(
         for image_path in agents_image_path_walk
     ]
 
-    artists = []
-
-    for i in range(len(df_trajectories)):
-
-        x = np.array(df_trajectories["position_x"].iloc[: i + 1])
-        y = np.array(df_trajectories["position_y"].iloc[: i + 1])
-
-        artist = ax.plot(x, y, c="grey", alpha=0.0)
-
-        points_robot = np.array([x, y]).T.reshape(-1, 1, 2)
-        segments_robot = np.concatenate([points_robot[:-1], points_robot[1:]], axis=1)
-
-        # # Create a LineCollection object with the segments
-        lc_robot = mcoll.LineCollection(segments_robot, cmap="viridis", norm=norm)
-        lc_robot.set_array(df_trajectories["velocity"].iloc[: i + 1])
-        artist.append(ax.add_collection(lc_robot))
-
-        image_robot_rot = create_image_marker(
-            image_robot,
-            zoom=0.1,
-            angle=df_trajectories["yaw"].iloc[i],
-            alpha=0.5 + 0.5 * i / len(df_trajectories),
-        )
-        ab = AnnotationBbox(
-            image_robot_rot,
-            (
-                x[-1],
-                y[-1],
-            ),
-            frameon=False,
-        )
-        artist.append(ax.add_artist(ab))
-
-        for j in range(agent_num):
-            x_agent = np.array(df_trajectories[f"position_x_agent{j}"].iloc[: i + 1])
-            y_agent = np.array(df_trajectories[f"position_y_agent{j}"].iloc[: i + 1])
-
-            points_agent = np.array([x_agent, y_agent]).T.reshape(-1, 1, 2)
-            segments_agent = np.concatenate(
-                [points_agent[:-1], points_agent[1:]], axis=1
-            )
-
-            # # Create a LineCollection object with the segments
-
-            lc_agent = mcoll.LineCollection(segments_agent, cmap="viridis", norm=norm)
-            lc_agent.set_array(df_trajectories[f"velocity_agent{j}"].iloc[: i + 1])
-            artist.append(ax.add_collection(lc_agent))
-            image_agent = image_agents_walk[j]
-            # image_agent = image_agents_walk[j] if i % 2 == 0 else np.flip(image_agents_walk[j], 1)
-            image_agent_rot = create_image_marker(
-                image_agent,
-                zoom=0.1,
-                angle=df_trajectories[f"yaw_agent{j}"].iloc[i],
-                alpha=0.5 + 0.5 * i / len(df_trajectories),
-            )
-            ab_agent = AnnotationBbox(
-                image_agent_rot,
-                (
-                    x_agent[-1],
-                    y_agent[-1],
-                ),
-                frameon=False,
-            )
-
-            artist.append(ax.add_artist(ab_agent))
-
-        len_df = len(df_trajectories)
-        for j in np.arange(0, len_df, len_df // 5):
-            if j < i:
-                image_robot_rot = create_image_marker(
-                    image_robot,
-                    zoom=0.1,
-                    angle=df_trajectories["yaw"].iloc[j],
-                    alpha=0.3 + 0.7 * (j / len_df),
-                )
-                ab = AnnotationBbox(
-                    image_robot_rot,
-                    (
-                        x[j],
-                        y[j],
-                    ),
-                    frameon=False,
-                )
-                artist.append(ax.add_artist(ab))
-
-                for k in range(agent_num):
-                    image_agent = image_agents_stand[k]
-                    image_agent_rot = create_image_marker(
-                        image_agent,
-                        zoom=0.1,
-                        angle=df_trajectories[f"yaw_agent{k}"].iloc[j],
-                        alpha=0.3 + 0.7 * (j / len_df),
-                    )
-                    ab_agent = AnnotationBbox(
-                        image_agent_rot,
-                        (
-                            x_agent[j],
-                            y_agent[j],
-                        ),
-                        frameon=False,
-                    )
-                    artist.append(ax.add_artist(ab_agent))
-
-        artists.append(artist)
-
-    ani = ArtistAnimation(fig, artists, interval=100, blit=True)
-    cb = plt.colorbar(lc_robot, ax=ax)
-    cb.ax.set_ylabel("Velocity [m/s]")
+    ani = animate_trajectories(
+        df_trajectories,
+        ax,
+        agent_num,
+        norm,
+        image_robot,
+        image_agents_walk,
+        static_image_size=4,
+    )
 
     plt.show()
     ani.save("test.mp4")
     return ani
-
-
-def plot_obstacles(df_obstacles: pd.DataFrame, ax: plt.Axes):
-    """Plot the obstacles
-    :param df_obstacles: Dataframe with the obstacles
-    """
-    ax.scatter(df_obstacles["x"], df_obstacles["y"], c="black", s=2)
-
-    pass
 
 
 def plot_goal(
@@ -325,7 +387,31 @@ def plot_goal(
     """Plot the goal
     :param goal: Tuple with the goal position
     """
-    goal_circle = patches.Circle((goal[0], goal[1]), radius, fill=False, color=color)
+    goal_circle = patches.Circle(
+        (goal[0], goal[1]), radius, edgecolor="black", fill=False, color=color
+    )
+
+    # add annotation  with the goal image
+    goal_image_path = "/home/andrea/workspaces/appl_ws/social_evaluation/elaborate/images/goal.png"  # Replace with your PNG file path
+    image_goal = plt.imread(goal_image_path, format="png")
+
+    # Get the bounding box of the axes in display (pixel) coordinates
+    bbox = ax.get_window_extent()
+
+    # Calculate the pixel width and height of the axes
+    ax_xbounds = ax.get_xbound()
+    ax_width = ax_xbounds[1] - ax_xbounds[0]
+    ax_width_in_pixels = bbox.width
+
+    desired_size_pixels = radius * 2 * ax_width_in_pixels / ax_width
+
+    ab_goal = AnnotationBbox(
+        create_image_marker(image_goal, desired_size=desired_size_pixels),
+        goal,
+        frameon=False,
+    )
+    ax.add_artist(ab_goal)
+
     ax.add_patch(goal_circle)
 
 
@@ -360,44 +446,6 @@ def plot_map(
     ]
     # use a resolution of 0.1 and set the origin of the map to the bottom left corner
     ax.imshow(map, cmap=color_map, extent=extent)
-
-
-def plot_agents(df_agents_list: List[pd.DataFrame], ax: plt.Axes) -> None:
-    """Plot the agents
-    :param df_agents_list: List of dataframes with the agents
-    :param ax: Matplotlib axis
-    """
-
-    # find the max/min velocity to normalize the arrow size
-    max_velocity = 0
-    min_velocity = 0
-
-    for df_agent in df_agents_list:
-        df_agent["velocity"] = np.linalg.norm(
-            df_agent[["velocity_x", "velocity_y"]].values, axis=1
-        )
-        max_velocity = max(max_velocity, df_agent["velocity"].max())
-        min_velocity = min(min_velocity, df_agent["velocity"].min())
-    norm = mcolors.Normalize(vmin=min_velocity, vmax=max_velocity)
-
-    for df_agent in df_agents_list:
-
-        df_agent["velocity"] = np.linalg.norm(
-            df_agent[["velocity_x", "velocity_y"]].values, axis=1
-        )
-        # sample the points to plot (to avoid plotting all the points)
-        df_agent_plot = df_agent.copy().iloc[0::10]
-        # create a scatter plot
-        ax.scatter(
-            df_agent_plot["position_x"].values,
-            df_agent_plot["position_y"].values,
-            c=df_agent_plot["velocity"],
-            cmap="viridis",
-            norm=norm,
-            marker="x",
-            s=20,
-            alpha=0.5,
-        )
 
 
 # %%
