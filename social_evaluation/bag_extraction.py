@@ -95,7 +95,10 @@ def extract_data_from_bag(
     df_agents_list = []
     for person in exp_config["examined_people"]:
         df_agents_list.append(utils.get_person_data(df_people, person))
-    df_obs, map = extract_obstacle_data(exp_config["map_file"])
+    map_file = Path(social_evaluation.__file__).parent.parent.joinpath(
+        exp_config["map_file"]
+    )
+    df_obs, map = extract_obstacle_data(map_file)
     return {
         "odometry": df_odometry,
         "people": df_people,
@@ -163,14 +166,14 @@ def main():
         "--config-file",
         type=Path,
         help="Config file for the extraction parameters",
-        default=package_path.joinpath("config/config.yaml"),
+        default=package_path.joinpath("../config/config.yaml"),
     )
 
     parser.add_argument(
         "--exp-config-file",
         type=Path,
         help="Config file for all the experiments parameters",
-        default=package_path.joinpath("config/experiments_config.yaml"),
+        default=package_path.joinpath("../config/experiments_config.yaml"),
     )
 
     parser.add_argument(

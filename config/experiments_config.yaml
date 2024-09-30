@@ -4,7 +4,7 @@ overtaking:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v1_v2.yaml
+  map_file: maps/test_v1_v2.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -21,7 +21,7 @@ passing:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v1_v2.yaml
+  map_file: maps/test_v1_v2.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -37,7 +37,7 @@ crossing1:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v3_v4.yaml
+  map_file: maps/test_v3_v4.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -55,7 +55,7 @@ crossing2:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v3_v4.yaml
+  map_file: maps/test_v3_v4.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -72,7 +72,7 @@ advanced1:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v5.yaml
+  map_file: maps/test_v5.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -89,7 +89,7 @@ advanced2:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v6.yaml
+  map_file: maps/test_v6.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -107,7 +107,7 @@ advanced3:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v7_v8.yaml
+  map_file: maps/test_v7_v8.yaml
 
   robot_dynamics:
     period_for_diff: 5
@@ -125,7 +125,7 @@ advanced4:
         child_frame_id: "base_link"
         frame_id: "map"
 
-  map_file: /home/stefanoubuntu/final_ws/src/social_evaluation_graphs/maps/test_v7_v8.yaml
+  map_file: maps/test_v7_v8.yaml
 
   robot_dynamics:
     period_for_diff: 5

@@ -4,4 +4,4 @@ origin: [-10.000000, -10.000000, 0.0]
 resolution: 0.050000
 mode: trinary
 occupied_thresh: 0.95
-image: /home/andrea/workspaces/appl_ws/social_evaluation/maps/corridor.pgm
+image: corridor.pgm

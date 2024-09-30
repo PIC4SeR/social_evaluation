@@ -7,6 +7,7 @@ from pathlib import Path
 from yaml import safe_load
 from cv2 import imread, IMREAD_GRAYSCALE, IMREAD_COLOR, IMREAD_UNCHANGED
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
+import social_evaluation
 
 
 class GridmapMapCost(Enum):
@@ -36,11 +37,12 @@ def get_map_data(map_path: Path) -> Tuple[np.ndarray, Dict[str, any]]:
     :return: Occupancy gridmap and metadata
     """
     # Load data
+    map_dir = Path(social_evaluation.__file__).parent.parent.joinpath("maps")
     with open(map_path, "r") as file:
         data = safe_load(file)
     metadata = data
     # Get map data
-    metadata["image_path"] = Path(metadata.pop("image"))
+    metadata["image_path"] = map_dir.joinpath(metadata.pop("image"))
     assert metadata["image_path"].exists()
     im = imread(str(metadata["image_path"]), IMREAD_UNCHANGED)
     metadata["image_raw"] = im

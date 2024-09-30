@@ -135,9 +135,6 @@ def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
         )
     df_people = pd.DataFrame(series_list)
     df = df.combine_first(df_people)
-    df.behaviour = df.behaviour.astype(str)
-    df.group_id = df.group_id.astype(str)
-    df.id = df.id.astype(str)
     return df
 
 
