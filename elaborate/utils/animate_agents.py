@@ -130,11 +130,8 @@ def animate_trajectories(
     df_trajectories_t.set_index("time", inplace=True)
     # Resample the data to the time frequency
 
-    # df_trajectories_rs = (
-    #     df_trajectories_t.resample(f"{1000 * time_freq}ms").mean().interpolate()
-    # )
     df_trajectories_rs = df_trajectories_t.asfreq(
-        f"{1000 * time_freq}ms", method="ffill"
+        f"{int(1000 * time_freq)}ms", method="ffill"
     )
     for i in trange(len(df_trajectories_rs)):
         artist = []
@@ -161,7 +158,7 @@ def animate_trajectories(
         )
         artists.append(artist)
 
-    ani = ArtistAnimation(fig, artists, interval=100, blit=True)
+    ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
     cb = plt.colorbar(artists[-1][0], ax=ax)
     cb.ax.set_ylabel("Velocity [m/s]")
     return ani

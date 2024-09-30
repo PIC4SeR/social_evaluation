@@ -68,6 +68,7 @@ def plot_experiment_single(data: dict, exp: str, ax: plt.Axes, fig: plt.Figure):
         map,
         ax,
         fig,
+        time_freq=0.1,
     )
     return ani
 
@@ -82,6 +83,7 @@ def plot_data(
     map: np.ndarray,
     ax: plt.Axes,
     fig: plt.Figure,
+    time_freq: float = 0.1,
 ) -> None:
     """Plot the data
     :param df_odometry: Dataframe with the odometry
@@ -99,21 +101,8 @@ def plot_data(
         df_robot=df_robot, df_agents_list=df_agents_list
     )
 
-    ani = pu.plot_trajectories(df_trajectories, ax, fig=fig)
+    ani = pu.plot_trajectories(df_trajectories, ax, fig=fig, time_freq=0.1)
     return ani
-
-
-def plot_first_position(df_agents_list: List[pd.DataFrame], ax: plt.Axes) -> None:
-    """
-    Plot the first position of the agents
-    """
-    for df_agent in df_agents_list:
-        ax.scatter(
-            df_agent["position_x"].iloc[0],
-            df_agent["position_y"].iloc[0],
-            c="black",
-            s=10,
-        )
 
 
 # %%
@@ -127,7 +116,7 @@ with open(pickle_file, "rb") as f:
 # %%
 # Plot the experiment
 
-exp = list(data.keys())[0]
+exp = list(data.keys())[1]
 
 
 fig, ax = plt.subplots()
@@ -136,3 +125,15 @@ fig.set_size_inches(10, 10)
 ani = plot_experiment_single(data, exp, ax, fig)
 
 plt.show()
+
+# save the animation as gif
+# %%
+ani.save("test.gif", writer="imagemagick")
+# %%
+# save the last frame of the animation
+fig.savefig("test.png")
+
+# %%
+## convert data[time] to datatime
+# print(data[exp]['transforms']['map_to_base_link']['time'])
+# data[exp]['transforms']['map_to_base_link']['time'] = pd.to_datetime(data[exp]['transforms']['map_to_base_link']['time'], unit='s')
