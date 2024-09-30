@@ -41,6 +41,8 @@ def plot_agent(
     )
     artist.append(ax.add_collection(lc_agent))
 
+    alpha = lambda i: 0.2 + 0.8 * i / len(df_trajectories)
+
     # Add the agent image with rotation
     ab = pu.create_annotation_box(
         image_agent,
@@ -48,7 +50,7 @@ def plot_agent(
         y[-1],
         desired_width_px=desired_width_px,
         angle=df_trajectories["yaw"].iloc[i],
-        alpha=0.5 + 0.5 * i / len(df_trajectories),
+        alpha=alpha(i),
     )
     artist.append(ax.add_artist(ab))
 
@@ -60,7 +62,7 @@ def plot_agent(
                     image_agent,
                     desired_width_px=desired_width_px,
                     angle=df_trajectories["yaw"].iloc[j],
-                    alpha=0.3 + 0.7 * (j / len_df),
+                    alpha=alpha(j),
                 )
                 ab_agent = AnnotationBbox(
                     image_agent_rot,
@@ -119,14 +121,26 @@ def animate_trajectories(
     norm: mcolors.Normalize,
     image_robot: np.ndarray,
     image_agents_walk: List[np.ndarray],
-    static_image_size: int = 4,
+    static_image_size: int = 3,
+    time_freq: float = 0.1,
 ) -> ArtistAnimation:
     artists = []
-    for i in trange(len(df_trajectories)):
+    df_trajectories_t = df_trajectories.copy()
+    df_trajectories_t["time"] = pd.to_datetime(df_trajectories["time"], unit="s")
+    df_trajectories_t.set_index("time", inplace=True)
+    # Resample the data to the time frequency
+
+    # df_trajectories_rs = (
+    #     df_trajectories_t.resample(f"{1000 * time_freq}ms").mean().interpolate()
+    # )
+    df_trajectories_rs = df_trajectories_t.asfreq(
+        f"{1000 * time_freq}ms", method="ffill"
+    )
+    for i in trange(len(df_trajectories_rs)):
         artist = []
         plot_agent(
             ax,
-            df_trajectories[["position_x", "position_y", "velocity", "yaw"]],
+            df_trajectories_rs[["position_x", "position_y", "velocity", "yaw"]],
             i,
             artist,
             norm,
@@ -136,7 +150,7 @@ def animate_trajectories(
         )
         plot_agents(
             ax,
-            df_trajectories,
+            df_trajectories_rs,
             i,
             artist,
             agent_num,
@@ -194,5 +208,6 @@ def plot_trajectories(
         image_robot,
         image_agents_walk,
         static_image_size=4,
+        time_freq=time_freq,
     )
     return ani
