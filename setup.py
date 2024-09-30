@@ -18,10 +18,14 @@ Repository:
 https://github.com/andreaostuni/social-evaluation
 
 
-"""  
+"""
 setup(
     name="social-evaluation",
-    packages=[package for package in find_packages() if package.startswith("social_evaluation")],
+    packages=[
+        package
+        for package in find_packages()
+        if package.startswith("social_evaluation")
+    ],
     package_data={"social_evaluation": ["py.typed", "version.txt"]},
     install_requires=[
         "numpy",
@@ -31,10 +35,11 @@ setup(
         "matplotlib",
         # for reading rosbags
         "rosbag2_py",
-        'nav_msgs',
-        'people_msgs',
-        'tf2_msgs',
-        'sensor_msgs',
+        "nav_msgs",
+        "people_msgs",
+        "tf2_msgs",
+        "sensor_msgs",
+        "rliable",
     ],
     extras_require={
         "tests": [

@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 # %%
 import pandas as pd
-from pathlib import Path
+from pathlib import Path, PosixPath
 import pickle
 import os
 import numpy as np
@@ -14,12 +16,11 @@ from social_evaluation.utils.metrics_utils import combine_df_robot_agents
 from scipy.ndimage import rotate
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.animation import FuncAnimation, ArtistAnimation
-from tqdm import trange
-
 import utils as pu
-
-
-# %%
+from tqdm import tqdm
+import argcomplete, argparse
+import yaml
+import social_evaluation
 
 
 def plot_experiment_aggregate(data: dict, exp: List[str], ax: plt.Axes):
@@ -30,21 +31,9 @@ def plot_experiment_aggregate(data: dict, exp: List[str], ax: plt.Axes):
     pass
 
 
-def plot_from_start_up_to_time(data: dict, exp: str, time: float, ax: plt.Axes):
-    pass
-
-
-def plot_from_time_to_time(
-    data: dict, exp: str, time_start: float, time_end: float, ax: plt.Axes
+def plot_experiment_single(
+    data: dict, exp: str, ax: plt.Axes, fig: plt.Figure, time_freq: float = 0.1
 ):
-    pass
-
-
-def plot_from_time_to_end(data: dict, exp: str, time_start: float, ax: plt.Axes):
-    pass
-
-
-def plot_experiment_single(data: dict, exp: str, ax: plt.Axes, fig: plt.Figure):
     """Plot the experiment
     :param data: Dictionary with the data
     :param exp: Experiment to plot
@@ -68,7 +57,7 @@ def plot_experiment_single(data: dict, exp: str, ax: plt.Axes, fig: plt.Figure):
         map,
         ax,
         fig,
-        time_freq=0.1,
+        time_freq=time_freq,
     )
     return ani
 
@@ -93,6 +82,9 @@ def plot_data(
     :param transforms: Dataframe with the transforms
     :param goal: Tuple with the goal position
     :param map: Numpy array with the map
+    :param ax: Matplotlib axis
+    :param fig: Matplotlib figure
+    :param time_freq: Frequency of the time to plot
     """
     pu.plot_map(map, ax)
     pu.plot_goal(goal, ax)
@@ -101,39 +93,85 @@ def plot_data(
         df_robot=df_robot, df_agents_list=df_agents_list
     )
 
-    ani = pu.plot_trajectories(df_trajectories, ax, fig=fig, time_freq=0.1)
+    ani = pu.plot_trajectories(df_trajectories, ax, fig=fig, time_freq=time_freq)
     return ani
 
 
-# %%
-# Load the data
+def main():
+    parser = argparse.ArgumentParser()
 
-pickle_file = Path("/home/andrea/workspaces/appl_ws/output.pickle")
-with open(pickle_file, "rb") as f:
-    data = pickle.load(f)
+    package_path = Path(social_evaluation.__file__).parent
+
+    parser.add_argument(
+        "--config-file",
+        type=Path,
+        help="Config file for all the plots parameters",
+        default=package_path.joinpath("../config/trajectory_plots.yaml"),
+    )
+
+    parser.add_argument(
+        "--pickle-file",
+        type=Path,
+        help="Bag file path to extract data from",
+        default="None",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Output directory to save the plots",
+        default="plotted_trajectories",
+    )
+
+    argcomplete.autocomplete(parser)
+    args = parser.parse_args()
+
+    config_path = Path(args.config_file)
+    config = yaml.load(config_path.open("r"), Loader=yaml.FullLoader)
+
+    if args.pickle_file != PosixPath("None"):
+        pickle_file = Path(args.pickle_file)
+        with open(pickle_file, "rb") as f:
+            data = pickle.load(f)
+    else:
+        data = {}
+        for exp in config["experiments"]:
+            print(f"Loading experiment {config['experiments']}")
+            print(f"Loading experiment {config['experiments'][exp]['path']}")
+            exp_path = Path(config["experiments"][exp]["path"])
+            with open(exp_path, "rb") as f:
+                pickle_data = pickle.load(f)
+                for key in pickle_data.keys():
+                    data[key] = pickle_data[key]
+
+    for i, exp in enumerate(tqdm(data.keys(), desc=f"Plotting experiments")):
+
+        experiment_name = exp.split("/")[-4]
+        algorithm_name = exp.split("/")[-3]
+
+        fig, ax = plt.subplots()
+        fig.set_size_inches(10, 10)
+
+        ani = plot_experiment_single(data, exp, ax, fig)
+
+        if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
+            os.makedirs(args.output_dir.joinpath(experiment_name, algorithm_name))
+
+        # save the animation as gif
+        ani.save(
+            args.output_dir.joinpath(
+                experiment_name, algorithm_name, f"scenario_{i}.gif"
+            ),
+            writer="imagemagick",
+            fps=10,
+        )
+        # save the last frame of the animation
+        fig.savefig(
+            args.output_dir.joinpath(
+                experiment_name, algorithm_name, f"scenario_{i}.png"
+            )
+        )
 
 
-# %%
-# Plot the experiment
-
-exp = list(data.keys())[1]
-
-
-fig, ax = plt.subplots()
-fig.set_size_inches(10, 10)
-
-ani = plot_experiment_single(data, exp, ax, fig)
-
-plt.show()
-
-# save the animation as gif
-# %%
-ani.save("test.gif", writer="imagemagick")
-# %%
-# save the last frame of the animation
-fig.savefig("test.png")
-
-# %%
-## convert data[time] to datatime
-# print(data[exp]['transforms']['map_to_base_link']['time'])
-# data[exp]['transforms']['map_to_base_link']['time'] = pd.to_datetime(data[exp]['transforms']['map_to_base_link']['time'], unit='s')
+if __name__ == "__main__":
+    main()
