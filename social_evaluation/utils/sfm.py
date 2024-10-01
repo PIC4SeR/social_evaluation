@@ -247,15 +247,20 @@ def compute_social_work(
     plus the social work provoked by the robot in the other agents
     """
     df_robot_ = df_robot.copy()
-    df_robot_["social_force_norm"] = modulus_social_force(df_robot, df_agents_list)
+    df_agents_list_ = df_agents_list.copy()
+    df_robot_["social_force_norm"] = modulus_social_force(df_robot, df_agents_list_)
     df_robot_[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
         df_robot, df_obstacles
     )
+    df_robot_.ffill(inplace=True)
+    for df_agent in df_agents_list_:
+        df_agent = df_agent.ffill(implace=True)
+
     df_robot_["wr"] = df_robot_["social_force_norm"] + df_robot_["obstacle_force_norm"]
 
-    for i, agent in enumerate(df_agents_list):
+    for i, agent in enumerate(df_agents_list_):
         df_robot_[f"wa_{i}"] = compute_social_force_two_agents(df_robot_, agent)
-    df_robot_["wa"] = df_robot_[[f"wa_{i}" for i in range(len(df_agents_list))]].sum(
+    df_robot_["wa"] = df_robot_[[f"wa_{i}" for i in range(len(df_agents_list_))]].sum(
         axis=1
     )
     df_robot_["wa"] = df_robot_["wa"].apply(
