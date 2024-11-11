@@ -23,12 +23,34 @@ import yaml
 import social_evaluation
 
 
-def plot_experiment_aggregate(data: dict, exp: List[str], ax: plt.Axes):
+def plot_experiment_aggregate(
+    data: dict, exp: List[str], ax: plt.Axes, fig: plt.Figure, time_freq: float = 0.1
+):
     """Plot the experiment
     :param data: Dictionary with the data
     :param exp: Experiment to plot
     """
-    pass
+
+    goal = data[exp[0]]["goal"]
+    map = data[exp[0]]["map"]
+
+    df_trajectories_list = []
+    for i in range(1, len(exp)):
+        df_trajectories_list.append(
+            combine_df_robot_agents(
+                df_robot=data[exp[i]]["transforms"]["map_to_base_link"],
+                df_agents_list=data[exp[i]]["agents"],
+            )
+        )
+
+    # Plot the data
+    pu.plot_map(map, ax)
+    pu.plot_goal(goal, ax)
+
+    ani = pu.plot_trajectories_aggregated(
+        df_trajectories_list, ax, fig=fig, time_freq=time_freq
+    )
+    return ani
 
 
 def plot_experiment_single(
@@ -129,6 +151,9 @@ def main():
     config_path = Path(args.config_file)
     config = yaml.load(config_path.open("r"), Loader=yaml.FullLoader)
 
+    plot_single = config["plot_single"]
+    plot_aggregated = config["plot_aggregated"]
+
     if args.pickle_file != PosixPath("None"):
         pickle_file = Path(args.pickle_file)
         with open(pickle_file, "rb") as f:
@@ -144,33 +169,69 @@ def main():
                 for key in pickle_data.keys():
                     data[key] = pickle_data[key]
 
-    for i, exp in enumerate(tqdm(data.keys(), desc=f"Plotting experiments")):
+    experiment_algorithm = {}
+    for exp in data.keys():
 
         experiment_name = exp.split("/")[-4]
         algorithm_name = exp.split("/")[-3]
+        if f"{experiment_name}_{algorithm_name}" not in experiment_algorithm:
+            experiment_algorithm[f"{experiment_name}_{algorithm_name}"] = []
+        experiment_algorithm[f"{experiment_name}_{algorithm_name}"].append(exp)
+    if plot_single:
+        for i, exp in enumerate(tqdm(data.keys(), desc=f"Plotting experiments")):
+            experiment_name = exp.split("/")[-4]
+            algorithm_name = exp.split("/")[-3]
 
-        fig, ax = plt.subplots()
-        fig.set_size_inches(10, 10)
+            fig, ax = plt.subplots()
+            fig.set_size_inches(10, 10)
 
-        ani = plot_experiment_single(data, exp, ax, fig)
+            ani = plot_experiment_single(data, exp, ax, fig)
 
-        if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
-            os.makedirs(args.output_dir.joinpath(experiment_name, algorithm_name))
+            if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
+                os.makedirs(args.output_dir.joinpath(experiment_name, algorithm_name))
 
-        # save the animation as gif
-        ani.save(
-            args.output_dir.joinpath(
-                experiment_name, algorithm_name, f"scenario_{i}.gif"
-            ),
-            writer="imagemagick",
-            fps=10,
-        )
-        # save the last frame of the animation
-        fig.savefig(
-            args.output_dir.joinpath(
-                experiment_name, algorithm_name, f"scenario_{i}.png"
+            # save the animation as gif
+            ani.save(
+                args.output_dir.joinpath(
+                    experiment_name, algorithm_name, f"scenario_{i}.gif"
+                ),
+                writer="imagemagick",
+                fps=10,
             )
-        )
+            # save the last frame of the animation
+            fig.savefig(
+                args.output_dir.joinpath(
+                    experiment_name, algorithm_name, f"scenario_{i}.png"
+                )
+            )
+    if plot_aggregated:
+        for i, exp in enumerate(
+            tqdm(experiment_algorithm.keys(), desc=f"Plotting aggregated experiments")
+        ):
+
+            if plot_aggregated:
+                fig, ax = plt.subplots()
+                fig.set_size_inches(10, 10)
+                experiment_name, algorithm_name = exp.split("_")
+
+                ani = plot_experiment_aggregate(
+                    data, experiment_algorithm[exp], ax, fig
+                )
+
+                # save the animation as gif
+                ani.save(
+                    args.output_dir.joinpath(
+                        experiment_name, algorithm_name, f"aggregated_trajectories.gif"
+                    ),
+                    writer="imagemagick",
+                    fps=10,
+                )
+                # save the last frame of the animation
+                fig.savefig(
+                    args.output_dir.joinpath(
+                        experiment_name, algorithm_name, f"aggregated_trajectories.png"
+                    )
+                )
 
 
 if __name__ == "__main__":

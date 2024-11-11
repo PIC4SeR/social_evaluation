@@ -1,5 +1,10 @@
+plot_single: True
+plot_aggregated: False
 experiments:
   overtaking_DWA: 
     name: "Overtaking DWA"
     path: "output.pickle"
+  # advanced1:
+  #   name: "Advanced 1"
+  #   path: "extracted_bags/advanced1.pickle"
     

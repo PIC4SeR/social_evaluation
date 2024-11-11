@@ -146,7 +146,16 @@ def get_images_for_experiment(
     return robot_image, image_agents_walk, image_agents_stand
 
 
-def set_ax_limits(df_trajectories: pd.DataFrame, agent_num: int, ax: plt.Axes) -> None:
+def find_ax_limits(
+    df_trajectories: pd.DataFrame, agent_num: int
+) -> Tuple[float, float]:
+    """
+    Find the limits for the axis
+    df_trajectories: Dataframe with the trajectories
+    agent_num: Number of agents
+
+    return: Tuple with the limits for the axis (min_x, max_x, min_y, max_y)
+    """
     min_x = df_trajectories["position_x"].min()
     max_x = df_trajectories["position_x"].max()
     min_y = df_trajectories["position_y"].min()
@@ -158,14 +167,33 @@ def set_ax_limits(df_trajectories: pd.DataFrame, agent_num: int, ax: plt.Axes) -
         min_y = min(min_y, df_trajectories[f"position_y_agent{i}"].min())
         max_y = max(max_y, df_trajectories[f"position_y_agent{i}"].max())
 
+    return min_x - 1, max_x + 1, min_y - 1, max_y + 1
+
+
+def set_ax_limits_from_trajectories(
+    df_trajectories_list: List[pd.DataFrame], agent_num: int, ax: plt.Axes
+) -> None:
+    min_x, max_x, min_y, max_y = np.inf, -np.inf, np.inf, -np.inf
+    for df_trajectories in df_trajectories_list:
+        min_x_, max_x_, min_y_, max_y_ = find_ax_limits(df_trajectories, agent_num)
+        min_x = min(min_x, min_x_)
+        max_x = max(max_x, max_x_)
+        min_y = min(min_y, min_y_)
+        max_y = max(max_y, max_y_)
     ax.set_xlim(min_x - 1, max_x + 1)
     ax.set_ylim(min_y - 1, max_y + 1)
 
 
-def find_norm_for_velocity(
+def find_min_max_velocity(
     df_trajectories: pd.DataFrame, agent_num: int
-) -> mcolors.Normalize:
+) -> Tuple[float, float]:
+    """
+    Find the minimum and maximum velocity for the agents
+    df_trajectories: Dataframe with the trajectories
+    agent_num: Number of agents
 
+    return: Tuple with the minimum and maximum velocity
+    """
     df_trajectories.dropna(subset=["velocity_x", "velocity_y"], inplace=True)
     df_trajectories["velocity"] = np.linalg.norm(
         df_trajectories[["velocity_x", "velocity_y"]].values, axis=1
@@ -182,4 +210,21 @@ def find_norm_for_velocity(
         min_velocity = min(min_velocity, df_trajectories[f"velocity_agent{i}"].min())
         max_velocity = max(max_velocity, df_trajectories[f"velocity_agent{i}"].max())
 
+    return min_velocity, max_velocity
+
+
+def find_norm_for_velocity(
+    df_trajectories_list: List[pd.DataFrame], agent_num: int
+) -> mcolors.Normalize:
+    """Find the norm for the velocity
+    :param df_trajectories: Dataframe with the trajectories
+    :param agent_num: Number of agents
+
+    :return: Normalize object for the velocity
+    """
+    min_velocity, max_velocity = np.inf, -np.inf
+    for df_trajectories in df_trajectories_list:
+        min_velocity_, max_velocity_ = find_min_max_velocity(df_trajectories, agent_num)
+        min_velocity = min(min_velocity, min_velocity_)
+        max_velocity = max(max_velocity, max_velocity_)
     return mcolors.Normalize(vmin=min_velocity, vmax=max_velocity)
