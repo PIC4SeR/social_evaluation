@@ -9,7 +9,8 @@ from .plot_utils import (
     retrieve_image_from_path,
     get_images_for_experiment,
     find_norm_for_velocity,
-    set_ax_limits,
+    set_ax_limits_from_trajectories,
+    find_ax_limits,
 )
 
 from .animate_agents import (
@@ -17,4 +18,5 @@ from .animate_agents import (
     animate_trajectories,
     plot_agents,
     plot_trajectories,
+    plot_trajectories_aggregated,
 )
