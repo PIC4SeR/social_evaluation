@@ -2,7 +2,7 @@ from logging import warning
 import pandas as pd
 
 # get the path to the bag file
-from pathlib import Path
+from pathlib import Path as OSPath
 import os
 import rosbag2_py
 from rclpy.serialization import deserialize_message
@@ -11,23 +11,23 @@ from tf_transformations import euler_from_quaternion, compose_matrix
 import numpy as np
 
 from people_msgs.msg import People, Person
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path as NavPath
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
 from typing import List, Tuple, Union, Dict, Type
 
-MsgType = Union[Odometry, People, LaserScan, PoseStamped, TFMessage]
+MsgType = Union[Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath]
 
 
-def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) -> Path:
+def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) -> OSPath:
     model_path = base_path + "/" + experiment + "/" + algorithm
-    model_path = Path(model_path)
-    bag_path = os.path.join(model_path, f"scenario_{index}", f"scenario_{index}_0.db3")
+    model_path = OSPath(model_path)
+    bag_path = os.path.join(model_path, f"experiment_{index}", f"experiment_{index}_0.db3")
     return bag_path
 
 
-def get_rosbag_options(path: Path, serialization_format: str = "cdr") -> Tuple:
+def get_rosbag_options(path: OSPath, serialization_format: str = "cdr") -> Tuple:
     storage_options = rosbag2_py.StorageOptions(uri=path, storage_id="sqlite3")
 
     converter_options = rosbag2_py.ConverterOptions(
@@ -37,7 +37,7 @@ def get_rosbag_options(path: Path, serialization_format: str = "cdr") -> Tuple:
     return storage_options, converter_options
 
 
-def get_messages_from_bag(bag_path: Path, topic: str) -> Tuple[List[MsgType], Type]:
+def get_messages_from_bag(bag_path: OSPath, topic: str) -> Tuple[List[MsgType], Type]:
     storage_options, converter_options = get_rosbag_options(bag_path)
     bag = rosbag2_py.SequentialReader()
     bag.open(storage_options, converter_options)
@@ -164,6 +164,45 @@ def laser_scan_to_df(laser_scan_msgs: List[LaserScan]) -> pd.DataFrame:
                     "range_max": range_max,
                     "ranges": ranges,
                     "intensities": intensities,
+                }
+            )
+        )
+    df = pd.DataFrame(series_list)
+    return df
+
+def path_to_df(path_msgs: List[NavPath]) -> pd.DataFrame:
+    series_list = []
+    for msg in path_msgs:
+        time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        poses = []
+        for pose_stamped in msg.poses:
+            x = pose_stamped.pose.position.x
+            y = pose_stamped.pose.position.y
+            z = pose_stamped.pose.position.z
+            qx = pose_stamped.pose.orientation.x
+            qy = pose_stamped.pose.orientation.y
+            qz = pose_stamped.pose.orientation.z
+            qw = pose_stamped.pose.orientation.w
+            roll, pitch, yaw = euler_from_quaternion([qx, qy, qz, qw])
+            poses.append(
+                {
+                    "position_x": x,
+                    "position_y": y,
+                    "position_z": z,
+                    "qx": qx,
+                    "qy": qy,
+                    "qz": qz,
+                    "qw": qw,
+                    "roll": roll,
+                    "pitch": pitch,
+                    "yaw": yaw,
+                }
+            )
+        series_list.append(
+            pd.Series(
+                {
+                    "time": time,
+                    "poses": poses,
                 }
             )
         )

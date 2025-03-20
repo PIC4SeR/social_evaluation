@@ -7,7 +7,7 @@ import pickle
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, Any, Union, List, Tuple
+from typing import Dict, Any, Union, List, Tuple, Optional
 import matplotlib.patches as patches
 import matplotlib.colors as mcolors
 import matplotlib.collections as mcoll
@@ -45,7 +45,8 @@ def plot_experiment_aggregate(
 
     # Plot the data
     pu.plot_map(map, ax)
-    pu.plot_goal(goal, ax)
+    if goal is not None:
+        pu.plot_goal(goal, ax)
 
     ani = pu.plot_trajectories_aggregated(
         df_trajectories_list, ax, fig=fig, time_freq=time_freq
@@ -64,6 +65,7 @@ def plot_experiment_single(
     df_people = pd.DataFrame(data[exp]["people"])
     df_agents_list = data[exp]["agents"]
     df_obstacles = data[exp]["obstacles"]
+    df_path = data[exp]["path"]
     transforms = data[exp]["transforms"]
     goal = data[exp]["goal"]
     map = data[exp]["map"]
@@ -75,6 +77,7 @@ def plot_experiment_single(
         df_agents_list,
         df_obstacles,
         transforms,
+        df_path,
         goal,
         map,
         ax,
@@ -90,7 +93,8 @@ def plot_data(
     df_agents_list: List[pd.DataFrame],
     df_obstacles: pd.DataFrame,
     transforms: pd.DataFrame,
-    goal: Tuple[float, float],
+    df_path: Optional[pd.DataFrame],
+    goal: Optional[Tuple[float, float]],
     map: np.ndarray,
     ax: plt.Axes,
     fig: plt.Figure,
@@ -109,7 +113,12 @@ def plot_data(
     :param time_freq: Frequency of the time to plot
     """
     pu.plot_map(map, ax)
-    pu.plot_goal(goal, ax)
+    if goal is not None:
+        pu.plot_goal(goal, ax)
+    else:
+        print("No goal to plot")
+    if df_path is not None:
+        pu.plot_path(df_path, ax)
     df_robot = transforms["map_to_base_link"]
     df_trajectories = combine_df_robot_agents(
         df_robot=df_robot, df_agents_list=df_agents_list
@@ -193,7 +202,7 @@ def main():
             # save the animation as gif
             ani.save(
                 args.output_dir.joinpath(
-                    experiment_name, algorithm_name, f"scenario_{i}.gif"
+                    experiment_name, algorithm_name, f"experiment_{i}.gif"
                 ),
                 writer="imagemagick",
                 fps=10,
@@ -201,7 +210,7 @@ def main():
             # save the last frame of the animation
             fig.savefig(
                 args.output_dir.joinpath(
-                    experiment_name, algorithm_name, f"scenario_{i}.png"
+                    experiment_name, algorithm_name, f"experiment_{i}.png"
                 )
             )
     if plot_aggregated:

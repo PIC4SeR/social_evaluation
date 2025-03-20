@@ -34,12 +34,15 @@ setup(
         # Plotting learning curves
         "matplotlib",
         # for reading rosbags
-        "rosbag2_py",
-        "nav_msgs",
-        "people_msgs",
-        "tf2_msgs",
-        "sensor_msgs",
+        # "rosbag2_py",
+        # "nav_msgs",
+        # "people_msgs",
+        # "tf2_msgs",
+        # "sensor_msgs",
         "rliable",
+        "argcomplete",
+        "pyyaml",
+        "argparse",
     ],
     extras_require={
         "tests": [

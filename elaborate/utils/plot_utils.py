@@ -118,7 +118,21 @@ def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.3) -> N
         frameon=False,
     )
     ax.add_artist(ab_goal)
-
+    
+def plot_path(
+    df_paths: pd.DataFrame, ax: plt.Axes, color: str = "green", linewidth: float = 1
+) -> None:
+    """Plot the path
+    :param df_paths: Dataframe with the path
+    """
+    #take the first path
+    df_path = df_paths.iloc[0]['poses']
+    #transform the path to dataframe
+    df_path = pd.DataFrame(df_path)
+    df_path.plot(x='position_x', y='position_y', ax=ax, color=color, linewidth=linewidth, alpha=0.5)
+    #remove the legend
+    ax.get_legend().remove()
+    
 
 def retrieve_image_from_path(image_path: str) -> np.ndarray:
     return np.rot90(plt.imread(image_path, format="png"), 3)

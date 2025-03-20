@@ -37,9 +37,11 @@ def extract_topics_from_bag(
                 goal = utils.get_goal_position(messages)
             case "tf2_msgs/msg/TFMessage":
                 df_tf = utils.tf2_messages_to_df(messages)
+            case "nav_msgs/msg/Path":
+                df_path = utils.path_to_df(messages)
             case _:
                 print(f"Unknown message type: {msg_type}")
-    return df_odometry, df_people, df_tf, goal
+    return df_odometry, df_people, df_tf, df_path, goal
 
 
 def extract_transforms_from_dataframes(
@@ -81,14 +83,17 @@ def extract_transforms_from_dataframes(
 
 
 def extract_data_from_bag(
-    bag_file: Path, topics: List[str], exp_config: Dict[str, Any]
+    bag_file: Path, topics: List[str], exp_config: Dict[str, Any], time_limit: Dict[str, Any]
 ) -> Dict[str, pd.DataFrame]:
     """Extract the data from the bag file
     : param bag_file: Path to the bag file
     : param exp_config: Configuration for the experiment
+    : param time_limit: Time limit for the experiment (relative to the start time)
     : return: Dictionary with the extracted data
     """
-    df_odometry, df_people, df_tf, goal = extract_topics_from_bag(bag_file, topics)
+    start_time = time_limit["start_time"]
+    end_time = time_limit["end_time"]
+    df_odometry, df_people, df_tf, df_path, goal = extract_topics_from_bag(bag_file, topics)
     transforms = extract_transforms_from_dataframes(
         df_tf, exp_config["transforms"], exp_config["robot_dynamics"]
     )
@@ -102,6 +107,7 @@ def extract_data_from_bag(
     return {
         "odometry": df_odometry,
         "people": df_people,
+        "path": df_path,
         "agents": df_agents_list,
         "goal": goal,
         "transforms": transforms,
@@ -119,6 +125,8 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
     algorithms = config["algorithms"]
     experiment_ids = config["experiment_ids"]
     base_path = config["base_path"]
+    if "time_limits" in config:
+        time_limits = config["time_limits"]
     # bag_paths = []
     data = {}
     for experiment_name in experiment_names:
@@ -127,7 +135,7 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
                 bag_path = utils.get_bag_path(experiment_name, algorithm, base_path, i)
                 # bag_paths.append(bag_path)
                 data[bag_path] = extract_data_from_bag(
-                    bag_path, config["topics"], config[experiment_name]
+                    bag_path, config["topics"], config[experiment_name], time_limits[experiment_name][algorithm][i]
                 )
     return data
 

@@ -6,6 +6,7 @@ from .plot_utils import (
     meters_to_pixels,
     plot_map,
     plot_goal,
+    plot_path,
     retrieve_image_from_path,
     get_images_for_experiment,
     find_norm_for_velocity,
