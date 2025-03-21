@@ -112,8 +112,8 @@ def extract_data_from_bag(
         df_odometry = utils.filter_df_by_time(df_odometry, start_time, end_time)
         df_people = utils.filter_df_by_time(df_people, start_time, end_time)
         df_path = utils.filter_df_by_time(df_path, start_time, end_time)
-        for transform in transforms.values():
-            transform = utils.filter_df_by_time(transform, start_time, end_time)
+        for transform_name, transform in transforms.items():
+            transforms[transform_name] = utils.filter_df_by_time(transform, start_time, end_time)
         for agent in df_agents_list:
             agent = utils.filter_df_by_time(agent, start_time, end_time)
         
