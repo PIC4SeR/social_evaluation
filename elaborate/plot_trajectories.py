@@ -124,7 +124,10 @@ def plot_data(
         print("No goal to plot")
     if df_path is not None:
         pu.plot_path(df_path, ax)
-    df_robot = transforms["map_to_base_link"]
+    if "map_to_base_link" in transforms:
+        df_robot = transforms["map_to_base_link"]
+    else:
+        df_robot = df_odometry
     df_trajectories = combine_df_robot_agents(
         df_robot=df_robot, df_agents_list=df_agents_list
     )

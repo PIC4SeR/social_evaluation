@@ -41,5 +41,90 @@ time_limits:
       3:
         start_time: 7.908
         end_time: 17.469
+  l_shaped_compliant:
+    first_planner:
+      1: # Really noisy bag
+        start_time: 5.470
+        end_time: 20.208 
+      2: # Not so good bag
+        start_time: 4.084
+        end_time: 17.674
+      3:
+        start_time: 11.255
+        end_time: 25.507
+    second_planner:
+      1: #same as first planner 2
+        start_time: 7.396
+        end_time: 21.272
+      2: 
+        start_time: 6.835
+        end_time: 21.400
+      3: # really noisy bag
+        start_time: 13.046
+        end_time: 25.986
+  l_shaped_not_compliant:
+    first_planner:
+      1: 
+        start_time: 2.991
+        end_time: 17.623
+      2: #noisy bag
+        start_time: 4.062
+        end_time: 19.055
+      3:
+        start_time: 2.651
+        end_time: 17.973
+    second_planner:
+      1: 
+        start_time: 5.574
+        end_time: 19.425
+      2:
+        start_time: 2.282
+        end_time: 16.331
+      3: #COLLISION
+        start_time: 1.518
+        end_time: 8.541
+  # queue:
+  #   first_planner:
+  #     1: # IMPOSSIBLE TO EVALUATE
+  #       start_time: 1.843
+  #       end_time: 27.527
+  #     2:
+  #       start_time: 15.186
+  #       end_time: 63.644
+  #     3:
+  #       start_time: 10.455
+  #       end_time: 23.371
+  #   second_planner:
+  #     1: 
+  #       start_time: 13.565
+  #       end_time: 23.995
+  #     2:
+  #       start_time: 34.657
+  #       end_time: 43.261
+  #     3:
+  #       start_time: 7.908
+  #       end_time: 17.469
+  split_with_two_entry_points:
+    first_planner:
+      1: 
+        start_time: 4.916
+        end_time: 31.260
+      2:
+        start_time: 10.232
+        end_time: 55.088
+      3:
+        start_time: 58.805
+        end_time: 85.126
+    second_planner:
+      1: #COLLISION or out of bounds
+        start_time: 1.536
+        end_time: 13.092
+      2:
+        start_time: 5.195
+        end_time: 16.067
+      3:
+        start_time: 23.300
+        end_time: 31.609
+
 
 base_path: /workspaces/hunavsim_ws/bags/global_planning_bags

@@ -118,6 +118,8 @@ def compute_social_force_two_agents(
     """Compute the social force between two agents"""
     df_interaction = df_agent1.merge(df_agent2, on="time", suffixes=("_1", "_2"))
     df_interaction.dropna(inplace=True)
+    if df_interaction.empty:
+        return pd.Series([np.nan] * len(df_agent1))
     df_interaction.reset_index(drop=True, inplace=True)
 
     df_interaction["diff"] = df_interaction[["position_x_1", "position_y_1"]].apply(
@@ -254,7 +256,7 @@ def compute_social_work(
     )
     df_robot_.ffill(inplace=True)
     for df_agent in df_agents_list_:
-        df_agent = df_agent.ffill(implace=True)
+        df_agent = df_agent.ffill(inplace=True)
 
     df_robot_["wr"] = df_robot_["social_force_norm"] + df_robot_["obstacle_force_norm"]
 

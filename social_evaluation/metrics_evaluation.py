@@ -114,10 +114,14 @@ def evaluate_metrics(
     metrics_results = {}
     metrics_df = {}
     for metric in metrics:
+        if 'map_to_base_link' in transforms:
+            robot_data = transforms["map_to_base_link"]
+        else:
+            robot_data = df_odometry
 
         result = utils.metrics[metric](
             df_agents_list,
-            transforms["map_to_base_link"],
+            robot_data,
             df_obstacles=df_obstacles,
             goal=goal,
             **config,
@@ -166,7 +170,7 @@ def main():
     paths_list = {}
     for experiment_name in experiment_names:
         for algorithm in algorithms:
-            paths_list[experiment_name + "_" + algorithm] = [
+            paths_list[experiment_name + ":" + algorithm] = [
                 k
                 for k in data.keys()
                 if ((experiment_name in k.split("/")) and (algorithm in k.split("/")))
@@ -178,7 +182,7 @@ def main():
             print(f"\tscenario_{i+1}: {scenario}")
 
     for path in tqdm(paths_list, desc="Evaluating experiments", leave=False):
-        experiment, algorithm = path.split("_")
+        experiment, algorithm = path.split(":")
         results_list.append(
             evaluate_algorithm(
                 paths_list[path], experiment, algorithm, data, metrics_config, metrics

@@ -53,6 +53,9 @@ def extract_transforms_from_dataframes(
     : return: Dictionary with the selected transforms
     """
     transforms = {}
+    if df_tf.empty:
+        print("No tf data available")
+        return transforms
     for transform in config_tf:
         for transform_name, transform_config in transform.items():
             frame_id = transform_config["frame_id"]
@@ -146,7 +149,7 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
             for i in experiment_ids:
                 bag_path = utils.get_bag_path(experiment_name, algorithm, base_path, i)
                 # bag_paths.append(bag_path)
-                if "time_limits" in config:
+                if "time_limits" in config and experiment_name in config["time_limits"]:
                     time_limits = config["time_limits"][experiment_name][algorithm][i]
                 data[bag_path] = extract_data_from_bag(
                     bag_path, config["topics"], config[experiment_name], time_limits
