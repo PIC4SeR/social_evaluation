@@ -13,7 +13,7 @@ experiment_names:
   # - "queue"
   # - "split_with_two_entry_points"
 algorithms:
-  # - "first_planner"
+  - "first_planner"
   - "second_planner"
 experiment_ids:
   - 1
@@ -22,23 +22,23 @@ experiment_ids:
 time_limits:
   group:
     first_planner:
-      -1: 
+      1: 
         start_time: 18.765
         end_time: 29.664
-      -2:
+      2:
         start_time: 19.035
         end_time: 31.659
-      -3:
+      3:
         start_time: 10.455
         end_time: 23.371
     second_planner:
-      -1: 
+      1: 
         start_time: 13.565
         end_time: 23.995
-      -2:
+      2:
         start_time: 34.657
         end_time: 43.261
-      -3:
+      3:
         start_time: 7.908
         end_time: 17.469
 

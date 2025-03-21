@@ -126,6 +126,8 @@ def plot_path(
     :param df_paths: Dataframe with the path
     """
     #take the first path
+    if df_paths.empty:
+        return
     df_path = df_paths.iloc[0]['poses']
     #transform the path to dataframe
     df_path = pd.DataFrame(df_path)

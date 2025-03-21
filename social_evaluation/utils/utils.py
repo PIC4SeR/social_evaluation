@@ -318,7 +318,13 @@ def time_goal_reached(
     # return the time when the goal was reached
     if df["distance_to_goal"].min() < threshold + robot_radius:
         return df[df["distance_to_goal"] < threshold + robot_radius].iloc[0]["time"]
-
+    
+def get_first_timestamp(bag_path: OSPath) -> float:
+    storage_options, converter_options = get_rosbag_options(bag_path)
+    bag = rosbag2_py.SequentialReader()
+    bag.open(storage_options, converter_options)
+    return bag.read_next()[2] * 1e-9 
+    
 
 def filter_df_by_time(
     df: pd.DataFrame, start_time: float = -np.inf, end_time: float = np.inf

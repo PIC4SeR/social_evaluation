@@ -33,6 +33,7 @@ def plot_experiment_aggregate(
 
     goal = data[exp[0]]["goal"]
     map = data[exp[0]]["map"]
+    map_metadata = data[exp[0]]["map_metadata"]
 
     df_trajectories_list = []
     for i in range(1, len(exp)):
@@ -44,7 +45,7 @@ def plot_experiment_aggregate(
         )
 
     # Plot the data
-    pu.plot_map(map, ax)
+    pu.plot_map(map, ax, map_metadata['resolution'], map_metadata['origin'])
     if goal is not None:
         pu.plot_goal(goal, ax)
 
@@ -69,6 +70,7 @@ def plot_experiment_single(
     transforms = data[exp]["transforms"]
     goal = data[exp]["goal"]
     map = data[exp]["map"]
+    map_metadata = data[exp]["map_metadata"]
 
     # Plot the data
     ani = plot_data(
@@ -80,6 +82,7 @@ def plot_experiment_single(
         df_path,
         goal,
         map,
+        map_metadata,
         ax,
         fig,
         time_freq=time_freq,
@@ -96,6 +99,7 @@ def plot_data(
     df_path: Optional[pd.DataFrame],
     goal: Optional[Tuple[float, float]],
     map: np.ndarray,
+    map_metadata: Dict[str, Any],
     ax: plt.Axes,
     fig: plt.Figure,
     time_freq: float = 0.1,
@@ -108,11 +112,12 @@ def plot_data(
     :param transforms: Dataframe with the transforms
     :param goal: Tuple with the goal position
     :param map: Numpy array with the map
+    :param map_metadata: Dictionary with the map metadata
     :param ax: Matplotlib axis
     :param fig: Matplotlib figure
     :param time_freq: Frequency of the time to plot
     """
-    pu.plot_map(map, ax)
+    pu.plot_map(map, ax, map_metadata['resolution'], map_metadata['origin'])
     if goal is not None:
         pu.plot_goal(goal, ax)
     else:

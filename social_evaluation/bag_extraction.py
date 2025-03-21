@@ -4,7 +4,7 @@ from social_evaluation import utils
 import social_evaluation
 
 import pandas as pd
-from typing import Dict, Any, Union, List, Tuple
+from typing import Dict, Any, Union, List, Tuple, Optional
 from pathlib import Path, PosixPath
 import argcomplete, argparse
 import yaml
@@ -83,7 +83,7 @@ def extract_transforms_from_dataframes(
 
 
 def extract_data_from_bag(
-    bag_file: Path, topics: List[str], exp_config: Dict[str, Any], time_limit: Dict[str, Any]
+    bag_file: Path, topics: List[str], exp_config: Dict[str, Any], time_limit: Optional[Dict[str, Any]]=None
 ) -> Dict[str, pd.DataFrame]:
     """Extract the data from the bag file
     : param bag_file: Path to the bag file
@@ -91,8 +91,9 @@ def extract_data_from_bag(
     : param time_limit: Time limit for the experiment (relative to the start time)
     : return: Dictionary with the extracted data
     """
-    start_time = time_limit["start_time"]
-    end_time = time_limit["end_time"]
+    # get the first timestamp in the bag file
+    start_time = utils.get_first_timestamp(bag_file)
+
     df_odometry, df_people, df_tf, df_path, goal = extract_topics_from_bag(bag_file, topics)
     transforms = extract_transforms_from_dataframes(
         df_tf, exp_config["transforms"], exp_config["robot_dynamics"]
@@ -103,7 +104,19 @@ def extract_data_from_bag(
     map_file = Path(social_evaluation.__file__).parent.parent.joinpath(
         exp_config["map_file"]
     )
-    df_obs, map = extract_obstacle_data(map_file)
+    df_obs, map, map_metadata = extract_obstacle_data(map_file)
+    
+    if time_limit is not None:
+        end_time = time_limit["end_time"] + start_time
+        start_time = time_limit["start_time"] + start_time
+        df_odometry = utils.filter_df_by_time(df_odometry, start_time, end_time)
+        df_people = utils.filter_df_by_time(df_people, start_time, end_time)
+        df_path = utils.filter_df_by_time(df_path, start_time, end_time)
+        for transform in transforms.values():
+            transform = utils.filter_df_by_time(transform, start_time, end_time)
+        for agent in df_agents_list:
+            agent = utils.filter_df_by_time(agent, start_time, end_time)
+        
     return {
         "odometry": df_odometry,
         "people": df_people,
@@ -113,6 +126,7 @@ def extract_data_from_bag(
         "transforms": transforms,
         "obstacles": df_obs,
         "map": map,
+        "map_metadata": map_metadata,
     }
 
 
@@ -125,17 +139,17 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
     algorithms = config["algorithms"]
     experiment_ids = config["experiment_ids"]
     base_path = config["base_path"]
-    if "time_limits" in config:
-        time_limits = config["time_limits"]
-    # bag_paths = []
+    time_limits = None
     data = {}
     for experiment_name in experiment_names:
         for algorithm in algorithms:
             for i in experiment_ids:
                 bag_path = utils.get_bag_path(experiment_name, algorithm, base_path, i)
                 # bag_paths.append(bag_path)
+                if "time_limits" in config:
+                    time_limits = config["time_limits"][experiment_name][algorithm][i]
                 data[bag_path] = extract_data_from_bag(
-                    bag_path, config["topics"], config[experiment_name], time_limits[experiment_name][algorithm][i]
+                    bag_path, config["topics"], config[experiment_name], time_limits
                 )
     return data
 
@@ -153,7 +167,13 @@ def extract_obstacle_data(
     df_obstacles = utils.retrieve_obstacle_positions(
         occupancy_gridmap, metadata, pool_size
     )
-    return df_obstacles, occupancy_gridmap
+    map_metadata = {
+        "resolution": metadata["resolution"],
+        "origin": metadata["origin"],
+        "width": metadata["width"],
+        "height": metadata["height"],
+    }
+    return df_obstacles, occupancy_gridmap, map_metadata
 
 
 def save_data(data: Dict[str, pd.DataFrame], output_file: Path):
