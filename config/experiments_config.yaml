@@ -173,7 +173,7 @@ l_shaped_compliant:
     - U_1.U_1
     - U_2.U_2
 
-l_shaped_not_sompliant:
+l_shaped_not_compliant:
   transforms:
     - map_to_base_link:
         child_frame_id: "base_link"
@@ -210,7 +210,7 @@ queue:
     - U_3.U_3
     - U_5.U_5
 
-split_with_two_wntry_points:
+split_with_two_entry_points:
   transforms:
     - map_to_base_link:
         child_frame_id: "base_link"

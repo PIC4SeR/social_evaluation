@@ -10,4 +10,16 @@ experiments:
   group:
     name: "Group"
     path: "/workspaces/hunavsim_ws/bags/extracted_bags/group.pickle"
+  l_shaped_not_compliant:
+    name: "L-shaped not compliant"
+    path: "/workspaces/hunavsim_ws/bags/extracted_bags/l_shaped_non_compliant.pickle"
+  split_with_two_entry_points:
+    name: "Split with two entry points"
+    path: "/workspaces/hunavsim_ws/bags/extracted_bags/split_with_two_entry_points.pickle"
+  queue:
+    name: "Queue"
+    path: "/workspaces/hunavsim_ws/bags/extracted_bags/queue.pickle"
+  l_shaped_compliant:
+    name: "L-shaped compliant"
+    path: "/workspaces/hunavsim_ws/bags/extracted_bags/l_shaped_compliant.pickle"
     

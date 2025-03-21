@@ -114,10 +114,11 @@ def evaluate_metrics(
     metrics_results = {}
     metrics_df = {}
     for metric in metrics:
+        robot_data = None
         if 'map_to_base_link' in transforms:
-            robot_data = transforms["map_to_base_link"]
+            robot_data = transforms["map_to_base_link"].copy()
         else:
-            robot_data = df_odometry
+            robot_data = df_odometry.copy()
 
         result = utils.metrics[metric](
             df_agents_list,

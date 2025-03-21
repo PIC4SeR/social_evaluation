@@ -593,7 +593,7 @@ def social_work(
     df_robot_ = df_robot.copy()
     """Compute the cumulative social work employed in this planner"""
     df_robot_["social_work"] = compute_social_work(
-        df_robot_, df_agents_list, df_obstacles
+        df_robot.copy(), df_agents_list, df_obstacles
     )
     return df_robot_["social_work"].sum(), df_robot_[["time", "social_work"]]
 
