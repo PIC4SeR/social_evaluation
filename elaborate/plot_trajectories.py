@@ -195,6 +195,7 @@ def main():
         for i, exp in enumerate(tqdm(data.keys(), desc=f"Plotting experiments")):
             experiment_name = exp.split("/")[-4]
             algorithm_name = exp.split("/")[-3]
+            exp_id = exp.split("_")[-2]
 
             fig, ax = plt.subplots()
             fig.set_size_inches(10, 10)
@@ -207,7 +208,7 @@ def main():
             # save the animation as gif
             ani.save(
                 args.output_dir.joinpath(
-                    experiment_name, algorithm_name, f"experiment_{i}.gif"
+                    experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
                 ),
                 writer="imagemagick",
                 fps=10,
@@ -215,7 +216,7 @@ def main():
             # save the last frame of the animation
             fig.savefig(
                 args.output_dir.joinpath(
-                    experiment_name, algorithm_name, f"experiment_{i}.png"
+                    experiment_name, algorithm_name, f"experiment_{exp_id}.png"
                 )
             )
     if plot_aggregated:
