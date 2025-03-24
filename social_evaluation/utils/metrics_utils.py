@@ -101,6 +101,7 @@ def combine_df_robot_agents(
     df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
         method="cubic", order=3
     )
+    df_agents.ffill(inplace=True)
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
     return df_agents
@@ -178,10 +179,11 @@ def distance_to_closest_person(
 
 
 def space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, k: SocialSpace
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, k: SocialSpace,
+    robot_radius: float = 0.3, agent_radius: float = 0.2
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of space intrusions"""
-    df_min_dist = distance_to_closest_person(df_agents_list, df_robot)
+    df_min_dist = distance_to_closest_person(df_agents_list, df_robot,robot_radius, agent_radius)
     df_min_dist["intrusion"] = df_min_dist["min_distance"].apply(
         lambda x: indicator_function(x, k)
     )
@@ -204,6 +206,7 @@ def group_space_intrusions(
     df_robot: pd.DataFrame,
     k: SocialSpace,
     group_radius: float = 1.5,
+    robot_radius: float = 0.3,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of space intrusions for each group"""
     group_ids = detect_groups(df_agents_list)
@@ -230,6 +233,7 @@ def group_space_intrusions(
             ),
             axis=1,
         )
+        df_group_center["intrusion"] = df_group_center["distance"] - robot_radius
         df_group_center["intrusion"] = df_group_center["distance"].apply(
             lambda x: indicator_function(x, k)
         )

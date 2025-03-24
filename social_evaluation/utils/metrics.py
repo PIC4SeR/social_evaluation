@@ -203,33 +203,36 @@ def maximum_distance_to_people(
 
 @metric("intimate_space_intrusions")
 def intimate_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args, **kwargs
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args,robot_radius: float = 0.3,
+    agent_radius: float = 0.3, **kwargs
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of intimate space intrusions"""
     percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.INTIMATE
+        df_agents_list, df_robot, SocialSpace.INTIMATE, robot_radius, agent_radius
     )
     return percentage, df_intrusion
 
 
 @metric("personal_space_intrusions")
 def personal_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args, **kwargs
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args,robot_radius: float = 0.3,
+    agent_radius: float = 0.3, **kwargs
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of personal space intrusions"""
     percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PERSONAL
+        df_agents_list, df_robot, SocialSpace.PERSONAL, robot_radius, agent_radius
     )
     return percentage, df_intrusion
 
 
 @metric("social_space_intrusions")
 def social_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args, **kwargs
+    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args,robot_radius: float = 0.3,
+    agent_radius: float = 0.3, **kwargs
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of social space intrusions"""
     percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.SOCIAL
+        df_agents_list, df_robot, SocialSpace.SOCIAL, robot_radius, agent_radius
     )
     return percentage, df_intrusion
 
@@ -238,12 +241,13 @@ def social_space_intrusions(
 def public_space_intrusions(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
-    *args,
+    *args,robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of public space intrusions"""
     percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PUBLIC
+        df_agents_list, df_robot, SocialSpace.PUBLIC, robot_radius, agent_radius
     )
     return percentage, df_intrusion
 
@@ -253,11 +257,12 @@ def group_intimate_space_intrusions(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of intimate space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.INTIMATE
+        df_agents_list, df_robot, SocialSpace.INTIMATE, robot_radius=robot_radius
     )
     return percentage, df_group_intrusions
 
@@ -267,11 +272,12 @@ def group_personal_space_intrusions(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of personal space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PERSONAL
+        df_agents_list, df_robot, SocialSpace.PERSONAL, robot_radius=robot_radius
     )
     return percentage, df_group_intrusions
 
@@ -281,11 +287,12 @@ def group_social_space_intrusions(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of social space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.SOCIAL
+        df_agents_list, df_robot, SocialSpace.SOCIAL, robot_radius=robot_radius
     )
     return percentage, df_group_intrusions
 
@@ -295,11 +302,12 @@ def group_public_space_intrusions(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of public space intrusions for each group"""
     percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PUBLIC
+        df_agents_list, df_robot, SocialSpace.PUBLIC, robot_radius=robot_radius
     )
     return percentage, df_group_intrusions
 
@@ -446,7 +454,7 @@ def avg_acceleration(
         periods=period
     ) / df_robot.time.diff(periods=period)
     df_robot_[df_robot_["acceleration"].abs() > max_accel] = np.nan
-    df_robot_["acceleration"].interpolate(method="cubic", order=3, inplace=True)
+    df_robot_["acceleration"] = df_robot_["acceleration"].interpolate(method="cubic", order=3)
     df_robot_.dropna(inplace=True)
     df_robot_.reset_index(drop=True, inplace=True)
     df_robot_["acceleration"].ewm(alpha=alpha).mean()
@@ -474,7 +482,7 @@ def avg_overacceleration(
         periods=period
     ) / df_acceleration.time.diff(periods=period)
     df_acceleration[df_acceleration["jerk"].abs() > max_jerk] = np.nan
-    df_acceleration["jerk"].interpolate(method="cubic", order=3, inplace=True)
+    df_acceleration["jerk"] = df_acceleration["jerk"].interpolate(method="cubic", order=3)
     df_acceleration.dropna(inplace=True)
     df_acceleration.reset_index(drop=True, inplace=True)
     df_acceleration["jerk"].ewm(alpha=alpha).mean()
@@ -553,9 +561,8 @@ def social_force_on_agents(
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the social force provoked by the robot to the agents"""
     df_robot_ = df_robot.copy()
-    df_robot_["social_force_dual_norm"] = modulus_social_force_dual(
-        df_robot_, df_agents_list
-    )
+    social_force_dual_norm = modulus_social_force_dual(df_robot_, df_agents_list)
+    df_robot_ = df_robot_.merge(social_force_dual_norm, on="time", how="left")
     return (
         df_robot_["social_force_dual_norm"].sum(),
         df_robot_[["time", "social_force_dual_norm"]],
@@ -571,7 +578,8 @@ def social_force_on_robot(
 ) -> Tuple[float, pd.DataFrame]:
     df_robot_ = df_robot.copy()
     """Compute the cumulative modulus of the social force provoked by the agents to the robot"""
-    df_robot_["social_force_norm"] = modulus_social_force(df_robot_, df_agents_list)
+    social_force_norm = modulus_social_force(df_robot_, df_agents_list)
+    df_robot_ = df_robot_.merge(social_force_norm, on="time", how="left")
     return (
         df_robot_["social_force_norm"].sum(),
         df_robot_[["time", "social_force_norm"]],
@@ -592,9 +600,8 @@ def social_work(
 ) -> float:
     df_robot_ = df_robot.copy()
     """Compute the cumulative social work employed in this planner"""
-    df_robot_["social_work"] = compute_social_work(
-        df_robot.copy(), df_agents_list, df_obstacles
-    )
+    social_work = compute_social_work(df_robot.copy(), df_agents_list, df_obstacles)
+    df_robot_ = df_robot_.merge(social_work, on="time", how="left")
     return df_robot_["social_work"].sum(), df_robot_[["time", "social_work"]]
 
 
@@ -607,15 +614,15 @@ def social_work_per_second(
     df_obstacles: pd.DataFrame,
     **kwargs,
 ) -> float:
-    """Compute the cumulative social work employed in this planner per second"""
+    """Compute the cumulative social work employed in this planner per msg"""
     df_robot_ = df_robot.copy().dropna()
     _, df_social_work = social_work(
         df_agents_list=df_agents_list, df_robot=df_robot_, df_obstacles=df_obstacles
     )
-    df_robot_["social_work"] = df_social_work["social_work"]
+    df_robot_ = df_robot_.merge(df_social_work, on="time", how="left")
     return (
         df_robot_["social_work"].sum()
-        / (df_robot_["time"].iloc[-1] - df_robot_["time"].iloc[0]),
+        /df_robot_["social_work"].count(),
         df_robot_[["time", "social_work"]],
     )
 
@@ -629,17 +636,19 @@ def obstacle_force_on_agents(
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the agents"""
+    new_df_agents_list = []
     for df_agent in df_agents_list:
-        df_agent[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
-            df_agent, df_obstacles
-        )
-    df_agents = combine_df_agents(df_agents_list)
+        obstacle_force_norm = modulus_obstacle_force(df_agent, df_obstacles)
+        obstacle_force_norm.drop(columns=["obstacle_force"], inplace=True)
+        df_agent = df_agent.merge(obstacle_force_norm, on="time", how="left")
+        new_df_agents_list.append(df_agent)
+    df_agents = combine_df_agents(new_df_agents_list)
     return (
-        np.mean([df_agent["obstacle_force_norm"].sum() for df_agent in df_agents_list]),
+        np.mean([df_agent["obstacle_force_norm"].sum() for df_agent in new_df_agents_list]),
         df_agents[
             [
                 "time",
-                *[f"obstacle_force_norm_agent{i}" for i in range(len(df_agents_list))],
+                *[f"obstacle_force_norm_agent{i}" for i in range(len(new_df_agents_list))],
             ]
         ],
     )
@@ -655,9 +664,8 @@ def obstacle_force_on_robot(
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot"""
     df_robot_ = df_robot.copy()
-    df_robot_[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
-        df_robot_, df_obstacles
-    )
+    obstacle_force_norm = modulus_obstacle_force(df_robot, df_obstacles)
+    df_robot_ = df_robot_.merge(obstacle_force_norm, on="time", how="left")
     return (
         df_robot_["obstacle_force_norm"].sum(),
         df_robot_[["time", "obstacle_force_norm"]],
@@ -687,9 +695,8 @@ def static_obs_collision(
 
     # count the number of times the robot collides with a static obstacle
     df_robot_ = df_robot.copy()
-    df_robot_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = (
-        find_closest_obstacle(df_robot_, df_obstacles)
-    )
+    closeset_obstacle = find_closest_obstacle(df_robot, df_obstacles)
+    df_robot_ = df_robot_.merge(closeset_obstacle, on="time", how="left")
     df_robot_["collision"] = df_robot_["closest_obs_dist"] < distance_threshold
     return df_robot_["collision"].sum(), df_robot_[["time", "collision"]]
 

@@ -187,12 +187,16 @@ def find_closest_obstacle_single(
     max_radius: float = 10.0,
 ) -> pd.Series:
     """Find the closest obstacle to an agent"""
+
     dist_obstacles = np.linalg.norm(
         obstacles - np.array([agent["position_x"], agent["position_y"]]), axis=1
     )
     min_dist = dist_obstacles.min()
     closest_obs = obstacles[dist_obstacles.argmin()]
-
+    min_dist = min_dist - robot_radius
+    if min_dist > max_radius:
+        min_dist = np.nan
+        closest_obs = np.array([np.nan, np.nan])
     return pd.Series(
         {
             "closest_obs_x": closest_obs[0],
@@ -217,4 +221,4 @@ def find_closest_obstacle(
         lambda x: find_closest_obstacle_single(x, obstacles, robot_radius, max_radius),
         axis=1,
     )
-    return df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]]
+    return df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist", "time"]]

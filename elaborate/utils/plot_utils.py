@@ -128,7 +128,7 @@ def plot_path(
     #take the first path
     if df_paths.empty:
         return
-    df_path = df_paths.iloc[0]['poses']
+    df_path = df_paths.iloc[-1]['poses']
     #transform the path to dataframe
     df_path = pd.DataFrame(df_path)
     df_path.plot(x='position_x', y='position_y', ax=ax, color=color, linewidth=linewidth, alpha=0.5)

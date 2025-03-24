@@ -77,16 +77,15 @@ def compute_obstacle_force(
 ) -> pd.DataFrame:
     """Compute the obstacle force for an agent"""
     df_agent_ = df_agent.copy()
-    df_agent_[["closest_obs_x", "closest_obs_y", "closest_obs_dist"]] = (
-        find_closest_obstacle(df_agent_, df_obstacles)
-    )
+    closest_obstacle = find_closest_obstacle(df_agent_, df_obstacles)
+    df_agent_ = df_agent_.merge(closest_obstacle, on='time', how='right')
     df_agent_["obstacle_force"] = df_agent_.apply(
-        lambda x: force_factor_obstacle
+        lambda x: -force_factor_obstacle
         * np.exp(-x["closest_obs_dist"] / force_sigma_obstacle)
         * (np.array(x[["closest_obs_x", "closest_obs_y"]]) / x["closest_obs_dist"]),
         axis=1,
     )
-    return df_agent_["obstacle_force"]
+    return df_agent_[["obstacle_force", "time"]]
 
 
 def modulus_obstacle_force(
@@ -97,13 +96,14 @@ def modulus_obstacle_force(
 ):
     """Compute the obstacle force norm for an agent"""
     df_agent_ = df_agent.copy()
-    df_agent_["obstacle_force"] = compute_obstacle_force(
+    obstacle_force = compute_obstacle_force(
         df_agent_, df_obstacles, force_factor_obstacle, force_sigma_obstacle
     )
+    df_agent_ = df_agent_.merge(obstacle_force, on='time', how='right')
     df_agent_["obstacle_force_norm"] = df_agent_.apply(
         lambda x: np.linalg.norm(x["obstacle_force"]), axis=1
     )
-    return df_agent_[["obstacle_force_norm", "obstacle_force"]]
+    return df_agent_[["obstacle_force_norm", "obstacle_force", "time"]]
 
 
 def compute_social_force_two_agents(
@@ -181,7 +181,6 @@ def compute_social_force_two_agents(
         df_interaction["force_velocity"] + df_interaction["force_angle"]
     )
     return df_interaction[['time', 'social_force']]
-    # return df_interaction["social_force"]
 
 
 def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
@@ -189,21 +188,19 @@ def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     It computes the social force provoked by the other agents to the agent examined
     """
     df_agent_ = df_agent.copy()
-    # df_agent_["time"] = df_agent_["time"].astype(float)
     for i, agent in enumerate(df_agents):
         df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
         df_interaction.dropna(inplace=True)
         social_force = compute_social_force_two_agents(df_interaction)
         df_agent_ = df_agent_.merge(social_force, on='time', how='right', suffixes=("", f"_{i}"))
         df_agent_.rename(columns={'social_force': f"social_force_{i}"}, inplace=True)
-        # df_agent_[f"social_force_{i}"] = compute_social_force_two_agents(df_interaction)
     df_agent_["social_force"] = df_agent_[
         [f"social_force_{i}" for i in range(len(df_agents))]
     ].sum(axis=1)
     df_agent_["social_force"] = df_agent_["social_force"].apply(
         lambda x: np.nan if not isinstance(x, np.ndarray) else x
     )
-    return df_agent_["social_force"]
+    return df_agent_[["social_force", "time"]]
 
 
 def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
@@ -211,10 +208,19 @@ def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     It computes the cumulative modulus of the social force provoked by the agents in the agent
     """
     df_agent_ = df_agent.copy()
-    df_agent_["social_force"] = compute_social_force(df_agent, df_agents)
-    return df_agent_["social_force"].apply(
-        lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan
-    )
+    for i, agent in enumerate(df_agents):
+        df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
+        df_interaction.dropna(inplace=True)
+        social_force = compute_social_force_two_agents(df_interaction)
+        df_agent_ = df_agent_.merge(social_force, on='time', how='right', suffixes=("", f"_{i}"))
+        df_agent_.rename(columns={'social_force': f"social_force_{i}"}, inplace=True)
+        df_agent_[f"social_force_{i}_norm"] = df_agent_.apply(
+            lambda x: np.linalg.norm(x[f"social_force_{i}"]), axis=1
+        )
+    df_agent_["social_force_norm"] = df_agent_[
+        [f"social_force_{i}_norm" for i in range(len(df_agents))]
+    ].sum(axis=1)
+    return df_agent_[["social_force_norm", "time"]]
 
 
 def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
@@ -225,7 +231,6 @@ def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
     for i, agent in enumerate(df_agents):
         df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
         df_interaction.dropna(inplace=True)
-        # df_agent_[f"social_force_{i}_dual"] = compute_social_force_two_agents(df_interaction)
         # use time as index to join the dataframes
         social_force = compute_social_force_two_agents(df_interaction)
         df_agent_ = df_agent_.merge(social_force, on='time', how='right')
@@ -237,19 +242,27 @@ def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
     df_agent_["social_force_dual"] = df_agent_["social_force_dual"].apply(
         lambda x: np.nan if not isinstance(x, np.ndarray) else x
     )
-    return df_agent_["social_force_dual"]
+    return df_agent_[["social_force_dual", "time"]]
 
 
 def modulus_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the cumulative modulus of the social force provoked by the agent in the rest of agents
     """
-    df_agent["social_force_dual"] = compute_social_force_dual(df_agent, df_agents)
-    return (
-        df_agent["social_force_dual"]
-        .dropna()
-        .apply(lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan)
-    )
+    df_agent_ = df_agent.copy()
+    for i, agent in enumerate(df_agents):
+        df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
+        df_interaction.dropna(inplace=True)
+        social_force = compute_social_force_two_agents(df_interaction)
+        df_agent_ = df_agent_.merge(social_force, on='time', how='right', suffixes=("", f"_{i}"))
+        df_agent_.rename(columns={'social_force': f"social_force_{i}_dual"}, inplace=True)
+        df_agent_[f"social_force_{i}_dual_norm"] = df_agent_.apply(
+            lambda x: np.linalg.norm(x[f"social_force_{i}_dual"]), axis=1
+        )
+    df_agent_["social_force_dual_norm"] = df_agent_[
+        [f"social_force_{i}_dual_norm" for i in range(len(df_agents))]
+    ].sum(axis=1)
+    return df_agent_[["social_force_dual_norm", "time"]]
 
 
 def compute_social_work(
@@ -263,28 +276,21 @@ def compute_social_work(
     """
     df_robot_ = df_robot.copy()
     df_agents_list_ = df_agents_list.copy()
-    df_robot_["social_force_norm"] = modulus_social_force(df_robot, df_agents_list_)
-    df_robot_[["obstacle_force_norm", "obstacle_force"]] = modulus_obstacle_force(
-        df_robot, df_obstacles
-    )
+    social_force = compute_social_force(df_robot, df_agents_list_)
+    df_robot_ = df_robot_.merge(social_force, on='time', how='right')
+    obstacle_force_norm = modulus_obstacle_force(df_robot, df_obstacles)
+    df_robot_ = df_robot_.merge(obstacle_force_norm, on='time', how='right')
     df_robot_.ffill(inplace=True)
     for df_agent in df_agents_list_:
         df_agent = df_agent.ffill(inplace=True)
-
-    df_robot_["wr"] = df_robot_["social_force_norm"] + df_robot_["obstacle_force_norm"]
-
-    for i, agent in enumerate(df_agents_list_):
-        df_interaction = df_robot.merge(agent, on="time", suffixes=("_1", "_2"))
-        df_interaction.dropna(inplace=True)
-        # df_robot_[f"wa_{i}"] = compute_social_force_two_agents(df_interaction)
-        social_force = compute_social_force_two_agents(df_interaction)
-        df_robot_ = df_robot_.merge(social_force, on='time', how='right', suffixes=("", f"_{i}"))
-        df_robot_.rename(columns={'social_force': f"wa_{i}"}, inplace=True)
-    df_robot_["wa"] = df_robot_[[f"wa_{i}" for i in range(len(df_agents_list_))]].sum(
-        axis=1
-    )
-    df_robot_["wa"] = df_robot_["wa"].apply(
+        
+    df_robot_["social_force_norm"] = df_robot_["social_force"].apply(
         lambda x: np.linalg.norm(x) if isinstance(x, np.ndarray) else np.nan
     )
+    df_robot_["wr"] = df_robot_["social_force_norm"] + df_robot_["obstacle_force_norm"]
 
-    return df_robot_["wr"] + df_robot_["wa"]
+    social_force_dual_norm = modulus_social_force_dual(df_robot, df_agents_list_)
+    df_robot_ = df_robot_.merge(social_force_dual_norm, on='time', how='right')
+    df_robot_.rename(columns={'social_force_dual_norm': 'wa'}, inplace=True)
+    df_robot_["social_work"] = df_robot_["wr"] + df_robot_["wa"]
+    return df_robot_[["social_work", "time"]]
