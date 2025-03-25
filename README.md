@@ -20,20 +20,20 @@ The package is divided into different parts:
 
 ### Bag extraction and data conversion
 
-- [Conversion of the data](social_evaluation/bag_extraction/README.md)
+- [Conversion of the data](docs/bag_extraction.md)
 
 ### Filtering of the data
 
-- [Filtering of the data](social_evaluation/data_filtering/README.md)
+- [Filtering of the data](docs/data_filtering.md)
 
 ### Plotting of the animations of the trajectories
 
-- [Plotting of the animations of the trajectories](social_evaluation/trajectory_plots/README.md)
+- [Plotting of the animations of the trajectories](docs/trajectory_plots.md)
 
 ### Computation of the social evaluation metrics
 
-- [Computation of the social evaluation metrics](social_evaluation/metrics_evaluation/README.md)
+- [Computation of the social evaluation metrics](docs/metrics_evaluation.md)
 
 ### Plotting and elaboration of the social evaluation metrics
 
-- [Plotting and elaboration of the social evaluation metrics](social_evaluation/metrics_visualization/README.md)
+- [Plotting and elaboration of the social evaluation metrics](docs/metrics_visualization.md)

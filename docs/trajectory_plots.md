@@ -45,7 +45,7 @@ The following is an example of the output of the code.
 
 The following is the trajectory of the robot in the social navigation task.
 
-![alt trajectory](../../images/experiment.png?raw=true)
+![alt trajectory](images/experiment.png?raw=true)
 
 The following is the animation of the trajectory of the robot in the social navigation task.
-![alt animation](../../images/experiment.gif?raw=true)
+![alt animation](images/experiment.gif?raw=true)
