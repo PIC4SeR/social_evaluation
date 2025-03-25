@@ -5,11 +5,10 @@
 The first step is to extract the dataframes from the rosbags and save them as pickle files
 
 ```bash
-cd social_evaluation
-python3 bag_extraction.py -h # to see the help
+bag_extraction -h # to see the help
 ```
 
-The script `bag_extraction.py` extracts the dataframes from the rosbags and saves them as pickle files. The script takes as input the path to the rosbag file and the path to the output directory where the pickle files will be saved. The script also takes as input the name of the topics that will be extracted from the rosbag file.
+The script `bag_extraction` extracts the dataframes from the rosbags and saves them as pickle files. The script takes as input the path to the rosbag file and the path to the output directory where the pickle files will be saved. The script also takes as input the name of the topics that will be extracted from the rosbag file.
 
 The supported msg types are:
 
@@ -114,8 +113,7 @@ experiment_name:
 To extract the data using the `config.yaml` and `experiment_config.yaml` files, run the following command:
 
 ```bash
-cd social_evaluation
-python3 bag_extraction.py --config-file config.yaml --exp-config-file experiment_config.yaml --output-file <path_to_output_file.pickle>
+bag_extraction --config-file config.yaml --exp-config-file experiment_config.yaml --output-file <path_to_output_file.pickle>
 ```
 
 The script will extract the dataframes from the rosbag file and save them as pickle files in the output pickle file specified by the user.

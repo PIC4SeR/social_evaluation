@@ -2,11 +2,10 @@
 
 ## Evaluate the social metrics from the pickle files
 
-Use the script `metrics_evaluation.py` to evaluate the social metrics from the pickle files. The script takes as input the path to the pickle file that contains the dataframes and the path to the output directory where the results will be saved. The script also takes as input the name of the experiment that we want to evaluate the social metrics for.
+Use the script `metrics_evaluation` to evaluate the social metrics from the pickle files. The script takes as input the path to the pickle file that contains the dataframes and the path to the output directory where the results will be saved. The script also takes as input the name of the experiment that we want to evaluate the social metrics for.
 
 ```bash
-cd social_evaluation
-python3 metrics_evaluation.py -h # to see the help
+metrics_evaluation -h # to see the help
 ```
 
 The supported social metrics are:
@@ -103,8 +102,7 @@ metrics_config:
 To extract the data using the `config.yaml` and `experiment_config.yaml` files, run the following command. The script needs the path to the data pickle file that contains the dataframes of the already extracted data.
 
 ```bash
-cd social_evaluation
-python3 metrics_evaluation.py --config experiments_config.yaml --metrics-file metrics_config.yaml --output-file <path_to_output_pickle_file>.pickle --data_file <path_to_data_pickle_file>.pickle
+metrics_evaluation --config experiments_config.yaml --metrics-file metrics_config.yaml --output-file <path_to_output_pickle_file>.pickle --data_file <path_to_data_pickle_file>.pickle
 ```
 
 The script will extract the dataframes from the rosbag file and save them as pickle files in the output pickle file specified by the user.

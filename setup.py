@@ -44,6 +44,14 @@ setup(
         "pyyaml",
         "argparse",
     ],
+    entry_points={
+        "console_scripts": [
+            "bag_extraction=social_evaluation.bag_extraction_:main",
+            "data_filtering=social_evaluation.data_filtering_:main",
+            "plot_trajectories=social_evaluation.plot_trajectories_:main",
+            "metrics_evaluation=social_evaluation.metrics_evaluation_:main",
+        ],
+    },
     extras_require={
         "tests": [
             # Run tests and coverage
