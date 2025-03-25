@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
-# %%
 import pandas as pd
 from pathlib import Path, PosixPath
 import pickle
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, Any, Union, List, Tuple, Optional
-import matplotlib.patches as patches
-import matplotlib.colors as mcolors
-import matplotlib.collections as mcoll
+from typing import Dict, Any, List, Tuple, Optional
 
-from social_evaluation.utils.metrics_utils import combine_df_robot_agents
-from scipy.ndimage import rotate
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from matplotlib.animation import FuncAnimation, ArtistAnimation
-import trajectory_plots.utils as pu
+
+from social_evaluation.common import combine_df_robot_agents
+import social_evaluation.trajectory_plots.utils as pu
 from tqdm import tqdm
 import argcomplete, argparse
 import yaml
@@ -45,7 +39,7 @@ def plot_experiment_aggregate(
         )
 
     # Plot the data
-    pu.plot_map(map, ax, map_metadata['resolution'], map_metadata['origin'])
+    pu.plot_map(map, ax, map_metadata["resolution"], map_metadata["origin"])
     if goal is not None:
         pu.plot_goal(goal, ax)
 
@@ -117,7 +111,7 @@ def plot_data(
     :param fig: Matplotlib figure
     :param time_freq: Frequency of the time to plot
     """
-    pu.plot_map(map, ax, map_metadata['resolution'], map_metadata['origin'])
+    pu.plot_map(map, ax, map_metadata["resolution"], map_metadata["origin"])
     if goal is not None:
         pu.plot_goal(goal, ax)
     else:

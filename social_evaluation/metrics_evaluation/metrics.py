@@ -1,15 +1,29 @@
 import numpy as np
-import math
-import rclpy
-from hunav_msgs.msg import Agent
-from geometry_msgs.msg import Pose
-from hunav_evaluator.sfm import SFM
 import pandas as pd
-from typing import List, Tuple, Dict, Any, Union
-from enum import Enum
-from social_evaluation.utils.utils import time_goal_reached
-from social_evaluation.utils.sfm import *
-from social_evaluation.utils.metrics_utils import *
+from typing import List, Tuple
+from social_evaluation.common import (
+    time_goal_reached,
+    combine_df_robot_agents,
+    normalize_angle,
+    combine_df_agents,
+    find_closest_obstacle,
+)
+from social_evaluation.metrics_evaluation.metrics_utils import (
+    metric,
+    SocialSpace,
+    space_intrusions,
+    group_space_intrusions,
+    check_collisions,
+    distance_to_closest_person,
+    closest_agent_to_robot,
+)
+
+from social_evaluation.metrics_evaluation.sfm import (
+    modulus_social_force_dual,
+    modulus_social_force,
+    compute_social_work,
+    modulus_obstacle_force,
+)
 
 # Teaching Robot Navigation Behaviors to Optimal RRT Planners
 # Noé Pérez-Higueras, Fernando Caballero & Luis Merino
@@ -203,8 +217,12 @@ def maximum_distance_to_people(
 
 @metric("intimate_space_intrusions")
 def intimate_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args,robot_radius: float = 0.3,
-    agent_radius: float = 0.3, **kwargs
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of intimate space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -215,8 +233,12 @@ def intimate_space_intrusions(
 
 @metric("personal_space_intrusions")
 def personal_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args,robot_radius: float = 0.3,
-    agent_radius: float = 0.3, **kwargs
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of personal space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -227,8 +249,12 @@ def personal_space_intrusions(
 
 @metric("social_space_intrusions")
 def social_space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, *args,robot_radius: float = 0.3,
-    agent_radius: float = 0.3, **kwargs
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
+    **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Compute the percentage of social space intrusions"""
     percentage, df_intrusion = space_intrusions(
@@ -241,7 +267,8 @@ def social_space_intrusions(
 def public_space_intrusions(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
-    *args,robot_radius: float = 0.3,
+    *args,
+    robot_radius: float = 0.3,
     agent_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
@@ -454,7 +481,9 @@ def avg_acceleration(
         periods=period
     ) / df_robot.time.diff(periods=period)
     df_robot_[df_robot_["acceleration"].abs() > max_accel] = np.nan
-    df_robot_["acceleration"] = df_robot_["acceleration"].interpolate(method="cubic", order=3)
+    df_robot_["acceleration"] = df_robot_["acceleration"].interpolate(
+        method="cubic", order=3
+    )
     df_robot_.dropna(inplace=True)
     df_robot_.reset_index(drop=True, inplace=True)
     df_robot_["acceleration"].ewm(alpha=alpha).mean()
@@ -482,7 +511,9 @@ def avg_overacceleration(
         periods=period
     ) / df_acceleration.time.diff(periods=period)
     df_acceleration[df_acceleration["jerk"].abs() > max_jerk] = np.nan
-    df_acceleration["jerk"] = df_acceleration["jerk"].interpolate(method="cubic", order=3)
+    df_acceleration["jerk"] = df_acceleration["jerk"].interpolate(
+        method="cubic", order=3
+    )
     df_acceleration.dropna(inplace=True)
     df_acceleration.reset_index(drop=True, inplace=True)
     df_acceleration["jerk"].ewm(alpha=alpha).mean()
@@ -621,8 +652,7 @@ def social_work_per_second(
     )
     df_robot_ = df_robot_.merge(df_social_work, on="time", how="left")
     return (
-        df_robot_["social_work"].sum()
-        /df_robot_["social_work"].count(),
+        df_robot_["social_work"].sum() / df_robot_["social_work"].count(),
         df_robot_[["time", "social_work"]],
     )
 
@@ -644,11 +674,16 @@ def obstacle_force_on_agents(
         new_df_agents_list.append(df_agent)
     df_agents = combine_df_agents(new_df_agents_list)
     return (
-        np.mean([df_agent["obstacle_force_norm"].sum() for df_agent in new_df_agents_list]),
+        np.mean(
+            [df_agent["obstacle_force_norm"].sum() for df_agent in new_df_agents_list]
+        ),
         df_agents[
             [
                 "time",
-                *[f"obstacle_force_norm_agent{i}" for i in range(len(new_df_agents_list))],
+                *[
+                    f"obstacle_force_norm_agent{i}"
+                    for i in range(len(new_df_agents_list))
+                ],
             ]
         ],
     )

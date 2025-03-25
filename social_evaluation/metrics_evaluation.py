@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
-from social_evaluation import utils
-from social_evaluation.bag_extraction import *
+from social_evaluation.metrics_evaluation import metrics_dict
 import pandas as pd
 from typing import Dict, Any, Union, List, Tuple
 from pathlib import Path, PosixPath
 import argcomplete, argparse
 import yaml
 import pickle
-import os
 import numpy as np
 from tqdm import tqdm
 
@@ -115,12 +113,12 @@ def evaluate_metrics(
     metrics_df = {}
     for metric in metrics:
         robot_data = None
-        if 'map_to_base_link' in transforms:
+        if "map_to_base_link" in transforms:
             robot_data = transforms["map_to_base_link"].copy()
         else:
             robot_data = df_odometry.copy()
 
-        result = utils.metrics[metric](
+        result = metrics_dict[metric](
             df_agents_list,
             robot_data,
             df_obstacles=df_obstacles,

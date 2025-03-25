@@ -1,19 +1,13 @@
 import pandas as pd
 from pathlib import Path
-import pickle
-import os
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, Any, Union, List, Tuple
-import matplotlib.patches as patches
+from typing import List, Tuple
 import matplotlib.colors as mcolors
 import matplotlib.collections as mcoll
 
-from social_evaluation.utils.metrics_utils import combine_df_robot_agents
 from scipy.ndimage import rotate
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from matplotlib.animation import FuncAnimation, ArtistAnimation
-from tqdm import trange
 
 pkg_dir = Path(__file__).resolve().parents[1]
 images_dir = Path(pkg_dir, "images")
@@ -118,23 +112,31 @@ def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.3) -> N
         frameon=False,
     )
     ax.add_artist(ab_goal)
-    
+
+
 def plot_path(
     df_paths: pd.DataFrame, ax: plt.Axes, color: str = "green", linewidth: float = 1
 ) -> None:
     """Plot the path
     :param df_paths: Dataframe with the path
     """
-    #take the first path
+    # take the first path
     if df_paths.empty:
         return
-    df_path = df_paths.iloc[-1]['poses']
-    #transform the path to dataframe
+    df_path = df_paths.iloc[-1]["poses"]
+    # transform the path to dataframe
     df_path = pd.DataFrame(df_path)
-    df_path.plot(x='position_x', y='position_y', ax=ax, color=color, linewidth=linewidth, alpha=0.5)
-    #remove the legend
+    df_path.plot(
+        x="position_x",
+        y="position_y",
+        ax=ax,
+        color=color,
+        linewidth=linewidth,
+        alpha=0.5,
+    )
+    # remove the legend
     ax.get_legend().remove()
-    
+
 
 def retrieve_image_from_path(image_path: str) -> np.ndarray:
     return np.rot90(plt.imread(image_path, format="png"), 3)

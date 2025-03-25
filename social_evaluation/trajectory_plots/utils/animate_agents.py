@@ -1,25 +1,16 @@
 from typing import List
-import matplotlib.patches as patches
 import pandas as pd
-from matplotlib.path import Path
-import pickle
-import os
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, Any, Union, List, Tuple
-import matplotlib.patches as patches
 import matplotlib.colors as mcolors
-import matplotlib.collections as mcoll
 
-from social_evaluation.utils.metrics_utils import combine_df_robot_agents
-from scipy.ndimage import rotate
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from matplotlib.animation import FuncAnimation, ArtistAnimation
+from matplotlib.offsetbox import AnnotationBbox
+from matplotlib.animation import ArtistAnimation
 from scipy.ndimage import gaussian_filter1d
 
 from tqdm import trange
+import social_evaluation.trajectory_plots.utils as pu
 
-import trajectory_plots.utils as pu
 
 def plot_agent(
     ax: plt.Axes,
@@ -31,6 +22,16 @@ def plot_agent(
     static_image_size: int = 5,
     desired_width: float = 0.3,
 ) -> None:
+    """Plot the agent
+    :param ax: Matplotlib axis
+    :param df_trajectories: Dataframe with the trajectories
+    :param i: Index of the trajectory
+    :param artist: List of artists
+    :param norm: Normalize object for the velocity
+    :param image_agent: Image for the agent
+    :param static_image_size: Number of static images to plot
+    :param desired_width: Desired width of the agent
+    """
     x = np.array(df_trajectories["position_x"].iloc[: i + 1])
     y = np.array(df_trajectories["position_y"].iloc[: i + 1])
     yaw = np.array(df_trajectories["yaw"].iloc[: i + 1])
@@ -88,13 +89,24 @@ def plot_agents(
     ax: plt.Axes,
     df_trajectories: pd.DataFrame,
     i: int,
-    artist: list,
+    artist: List[plt.Artist],
     agent_num: int,
     norm: mcolors.Normalize,
     image_agents_walk: List[np.ndarray],
     static_image_size: int = 5,
     desired_width: float = 0.3,
 ) -> None:
+    """Plot the agents
+    :param ax: Matplotlib axis
+    :param df_trajectories: Dataframe with the trajectories
+    :param i: Index of the trajectory
+    :param artist: List of artists
+    :param agent_num: Number of agents
+    :param norm: Normalize object for the velocity
+    :param image_agents_walk: List of images for the agents
+    :param static_image_size: Number of static images to plot
+    :param desired_width: Desired width of the agent
+    """
     for j in range(agent_num):
         plot_agent(
             ax,
@@ -133,6 +145,18 @@ def animate_trajectories(
     static_image_size: int = 3,
     time_freq: float = 0.1,
 ) -> ArtistAnimation:
+    """Animate the trajectories
+    :param df_trajectories: Dataframe with the trajectories
+    :param fig: Matplotlib figure
+    :param ax: Matplotlib axis
+    :param agent_num: Number of agents
+    :param norm: Normalize object for the velocity
+    :param image_robot: Image for the robot
+    :param image_agents_walk: List of images for the agents
+    :param static_image_size: Number of static images to plot
+    :param time_freq: Frequency of the time to plot
+    :return: Matplotlib animation object
+    """
     artists = []
     df_trajectories_t = df_trajectories.copy()
     df_trajectories_t["time"] = pd.to_datetime(df_trajectories["time"], unit="s")

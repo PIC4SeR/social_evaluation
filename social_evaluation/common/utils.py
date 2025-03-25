@@ -1,4 +1,3 @@
-from logging import warning
 import pandas as pd
 
 # get the path to the bag file
@@ -23,7 +22,9 @@ MsgType = Union[Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath]
 def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) -> OSPath:
     model_path = base_path + "/" + experiment + "/" + algorithm
     model_path = OSPath(model_path)
-    bag_path = os.path.join(model_path, f"experiment_{index}", f"experiment_{index}_0.db3")
+    bag_path = os.path.join(
+        model_path, f"experiment_{index}", f"experiment_{index}_0.db3"
+    )
     return bag_path
 
 
@@ -169,6 +170,7 @@ def laser_scan_to_df(laser_scan_msgs: List[LaserScan]) -> pd.DataFrame:
         )
     df = pd.DataFrame(series_list)
     return df
+
 
 def path_to_df(path_msgs: List[NavPath]) -> pd.DataFrame:
     series_list = []
@@ -318,18 +320,13 @@ def time_goal_reached(
     # return the time when the goal was reached
     if df["distance_to_goal"].min() < threshold + robot_radius:
         return df[df["distance_to_goal"] < threshold + robot_radius].iloc[0]["time"]
-    
+
+
 def get_first_timestamp(bag_path: OSPath) -> float:
     storage_options, converter_options = get_rosbag_options(bag_path)
     bag = rosbag2_py.SequentialReader()
     bag.open(storage_options, converter_options)
-    return bag.read_next()[2] * 1e-9 
-    
-
-def filter_df_by_time(
-    df: pd.DataFrame, start_time: float = -np.inf, end_time: float = np.inf
-) -> pd.DataFrame:
-    return df[(df["time"] >= start_time) & (df["time"] <= end_time)]
+    return bag.read_next()[2] * 1e-9
 
 
 def get_last_row_in_interval(
@@ -340,3 +337,70 @@ def get_last_row_in_interval(
 
 def filter_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
     return df[columns]
+
+
+def normalize_angle(angle: float) -> float:
+    """Normalize the angle to be between -pi and pi"""
+    return np.arctan2(np.sin(angle), np.cos(angle))
+
+
+def combine_df_robot_agents(
+    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
+) -> pd.DataFrame:
+    """Combine the robot and agents dataframes
+    :param df_robot: Dataframe with the robot data
+    :param df_agents_list: List of dataframes with the agents data
+    :return: Dataframe with the combined data
+    """
+    df_agents = df_robot
+    df_agents = df_agents.merge(
+        combine_df_agents(df_agents_list), on="time", how="outer"
+    )
+    df_agents.infer_objects(copy=False)
+    attributes = [
+        attribute
+        for attribute in df_agents.columns.to_list()
+        if "time" not in attribute
+        and "id" not in attribute
+        and "behaviour" not in attribute
+    ]
+    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
+        method="cubic", order=3
+    )
+    df_agents.ffill(inplace=True)
+    df_agents.dropna(inplace=True)
+    df_agents.reset_index(drop=True, inplace=True)
+    return df_agents
+
+
+def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
+    """Combine the agents dataframes interpolating the
+        missing values and filling the NaN values
+    :param df_agents_list: List of dataframes with the agents data
+    :return: Dataframe with the combined data
+    """
+    df_agents = df_agents_list[0].add_suffix("_agent0")
+    df_agents.rename(columns={"time_agent0": "time"}, inplace=True)
+    for i, df_agent in enumerate(df_agents_list[1:]):
+        df_agents = df_agents.merge(
+            df_agent.add_suffix(f"_agent{i+1}").rename(
+                columns={f"time_agent{i+1}": "time"}
+            ),
+            on="time",
+            how="outer",
+        )
+
+    attributes = [
+        attribute
+        for attribute in df_agents.columns.to_list()
+        if "time" not in attribute
+        and "id" not in attribute
+        and "behaviour" not in attribute
+    ]
+    df_agents.infer_objects(copy=False)
+    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
+        method="cubic", order=3
+    )
+    df_agents.dropna(inplace=True)
+    df_agents.reset_index(drop=True, inplace=True)
+    return df_agents

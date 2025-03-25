@@ -8,8 +8,8 @@ The package uses the data that are collected from the rosbag file and converts t
 After the conversion of the data from the rosbag to the pickle file, you can use the following code to analyze the trajectory of the robot.
 
 ```bash
-cd trajectory_plots
-python trajectory.py -h # to see the help message
+cd social_evaluation
+python plot_trajectories.py -h # to see the help message
 ```
 
 To run the code, you need to provide:
@@ -19,7 +19,7 @@ To run the code, you need to provide:
 - The path to output directory where the plot will be saved.
 
 ```bash
-python trajectory.py --pickle-file <path_to_pickle_file> --config-file <path_to_config_file> --output-dir <path_to_output_dir>
+python plot_trajectories.py --pickle-file <path_to_pickle_file> --config-file <path_to_config_file> --output-dir <path_to_output_dir>
 ```
 
 The config file should contain the following information:
@@ -45,7 +45,7 @@ The following is an example of the output of the code.
 
 The following is the trajectory of the robot in the social navigation task.
 
-![alt trajectory](../images/experiment.png?raw=true)
+![alt trajectory](../../images/experiment.png?raw=true)
 
 The following is the animation of the trajectory of the robot in the social navigation task.
-![alt animation](../images/experiment.gif?raw=true)
+![alt animation](../../images/experiment.gif?raw=true)

@@ -1,10 +1,10 @@
 import numpy as np
 import math
 import pandas as pd
-from typing import List, Tuple, Dict, Any, Union
+from typing import List, Tuple
 from enum import Enum
-from social_evaluation.utils.utils import time_goal_reached
-from social_evaluation.utils.sfm import *
+from social_evaluation.common import combine_df_robot_agents, combine_df_agents
+
 
 # Teaching Robot Navigation Behaviors to Optimal RRT Planners
 # Noé Pérez-Higueras, Fernando Caballero & Luis Merino
@@ -24,6 +24,10 @@ class SocialSpace(Enum):
 
 
 def indicator_function(distance: float, k: SocialSpace) -> int:
+    """Indicator function for the social space categories
+    :param distance: Distance between the robot and the person
+    :param k: Social space category
+    :return: 1 if the distance is within the category, 0 otherwise"""
     match k:
         case SocialSpace.INTIMATE:
             return 1 if distance < 0.45 else 0
@@ -41,6 +45,9 @@ metrics = {}
 
 
 def metric(name: str) -> callable:
+    """Decorator to add a metric to the metrics dictionary
+    :param name: Name of the metric"""
+
     def wrapper(func) -> callable:
         metrics[name] = func
         return func
@@ -48,70 +55,15 @@ def metric(name: str) -> callable:
     return wrapper
 
 
-def normalize_angle(angle: float) -> float:
-    """Normalize the angle to be between -pi and pi"""
-    return (angle + np.pi) % (2 * np.pi) - np.pi
-
-
-def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
-    """Combine the agents dataframes"""
-    df_agents = df_agents_list[0].add_suffix("_agent0")
-    df_agents.rename(columns={"time_agent0": "time"}, inplace=True)
-    for i, df_agent in enumerate(df_agents_list[1:]):
-        df_agents = df_agents.merge(
-            df_agent.add_suffix(f"_agent{i+1}").rename(
-                columns={f"time_agent{i+1}": "time"}
-            ),
-            on="time",
-            how="outer",
-        )
-
-    attributes = [
-        attribute
-        for attribute in df_agents.columns.to_list()
-        if "time" not in attribute
-        and "id" not in attribute
-        and "behaviour" not in attribute
-    ]
-    df_agents.infer_objects(copy=False)
-    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
-        method="cubic", order=3
-    )
-    df_agents.dropna(inplace=True)
-    df_agents.reset_index(drop=True, inplace=True)
-    return df_agents
-
-
-def combine_df_robot_agents(
-    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
-) -> pd.DataFrame:
-    """Combine the robot and agents dataframes"""
-    df_agents = df_robot
-    df_agents = df_agents.merge(
-        combine_df_agents(df_agents_list), on="time", how="outer"
-    )
-    df_agents.infer_objects(copy=False)
-    attributes = [
-        attribute
-        for attribute in df_agents.columns.to_list()
-        if "time" not in attribute
-        and "id" not in attribute
-        and "behaviour" not in attribute
-    ]
-    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
-        method="cubic", order=3
-    )
-    df_agents.ffill(inplace=True)
-    df_agents.dropna(inplace=True)
-    df_agents.reset_index(drop=True, inplace=True)
-    return df_agents
-
-
 def get_group_center(
     df_agents_list: List[pd.DataFrame], group_id: int, distance: float
 ) -> pd.DataFrame:
     """Get the group center of the agents belonging to the same group
-    The group center is the 'average' position of the agents in the group"""
+    The group center is the 'average' position of the agents in the group
+    :param df_agents_list: List of dataframes with the agents data
+    :param group_id: Group id
+    :param distance: Distance to the group center
+    :return: Dataframe with the group center data"""
 
     group = [df_agent for df_agent in df_agents_list if df_agent.group_id == group_id]
     df_agents = combine_df_agents(group)
@@ -155,7 +107,12 @@ def distance_to_closest_person(
     robot_radius: float = 0.3,
     agent_radius: float = 0.2,
 ) -> pd.DataFrame:
-    """Compute the distance to the closest person"""
+    """Compute the distance to the closest person
+    :param df_agents_list: List of dataframes with the agents data
+    :param df_robot: Dataframe with the robot data
+    :param robot_radius: Radius of the robot
+    :param agent_radius: Radius of the agent
+    :return: Dataframe with the time and distance to the closest person"""
     df_agents = combine_df_robot_agents(df_robot, df_agents_list)
     for i in range(len(df_agents_list)):
         df_agents[f"distance_agent{i}"] = df_agents.apply(
@@ -179,11 +136,23 @@ def distance_to_closest_person(
 
 
 def space_intrusions(
-    df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame, k: SocialSpace,
-    robot_radius: float = 0.3, agent_radius: float = 0.2
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    k: SocialSpace,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.2,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of space intrusions"""
-    df_min_dist = distance_to_closest_person(df_agents_list, df_robot,robot_radius, agent_radius)
+    """Compute the percentage of space intrusions
+    :param df_agents_list: List of dataframes with the agents data
+    :param df_robot: Dataframe with the robot data
+    :param k: Social space category
+    :param robot_radius: Radius of the robot
+    :param agent_radius: Radius of the agent
+    :return: Percentage of space intrusions and dataframe with the time and intrusion"""
+
+    df_min_dist = distance_to_closest_person(
+        df_agents_list, df_robot, robot_radius, agent_radius
+    )
     df_min_dist["intrusion"] = df_min_dist["min_distance"].apply(
         lambda x: indicator_function(x, k)
     )
@@ -208,7 +177,13 @@ def group_space_intrusions(
     group_radius: float = 1.5,
     robot_radius: float = 0.3,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of space intrusions for each group"""
+    """Compute the percentage of space intrusions for each group
+    :param df_agents_list: List of dataframes with the agents data
+    :param df_robot: Dataframe with the robot data
+    :param k: Social space category
+    :param group_radius: Radius of the group
+    :param robot_radius: Radius of the robot
+    :return: Percentage of space intrusions and dataframe with the time and intrusion"""
     group_ids = detect_groups(df_agents_list)
     if len(group_ids) == 0:
         return [0.0, pd.DataFrame()]
@@ -249,7 +224,11 @@ def group_space_intrusions(
 def check_collisions(
     df_agents_list: List[pd.DataFrame], df_robot: pd.DataFrame
 ) -> Tuple[int, int, pd.DataFrame]:
-    """Check for collisions between the robot and people"""
+    """Check for collisions between the robot and people
+    :param df_agents_list: List of dataframes with the agents data
+    :param df_robot: Dataframe with the robot data
+    :return: Number of robot collisions, number of person collisions and dataframe with the collisions
+    """
     robot_collisions = 0
     person_collisions = 0
 
@@ -334,7 +313,11 @@ def check_collisions(
 def closest_agent_to_robot(
     df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
 ) -> List[float]:
-    """Compute the closest pedestrian to the robot as a list of indexes"""
+    """Compute the closest pedestrian to the robot as a list of indexes
+    :param df_robot: Dataframe with the robot data
+    :param df_agents_list: List of dataframes with the agents data
+    :return: List of indexes with the closest agent to the
+    robot at each time step"""
     df_agents = combine_df_robot_agents(df_robot, df_agents_list)
     df_agents["closest_agent"] = df_agents.apply(
         lambda x: np.argmin(

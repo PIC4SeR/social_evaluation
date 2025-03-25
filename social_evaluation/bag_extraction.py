@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
-from social_evaluation import utils
+from social_evaluation.bag_extraction import (
+    get_messages_from_bag,
+    odometry_to_df,
+    people_to_df,
+    path_to_df,
+    get_goal_position,
+    tf2_messages_to_df,
+    get_first_timestamp,
+    get_person_data,
+    filter_df_by_time,
+    get_bag_path,
+    get_transform_between_frames,
+    get_pose_data_from_transform,
+    compute_odometry_data,
+)
+from social_evaluation.common import get_map_data, retrieve_obstacle_positions
 import social_evaluation
+from tqdm import tqdm
+from rclpy.logging import set_logger_level
 
 import pandas as pd
-from typing import Dict, Any, Union, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional
 from pathlib import Path, PosixPath
 import argcomplete, argparse
 import yaml
@@ -27,18 +44,18 @@ def extract_topics_from_bag(
     df_tf = pd.DataFrame()
     goal = None
     for topic in topics:
-        messages, msg_type = utils.get_messages_from_bag(bag_file, topic)
+        messages, msg_type = get_messages_from_bag(bag_file, topic)
         match msg_type:
             case "nav_msgs/msg/Odometry":
-                df_odometry = utils.odometry_to_df(messages)
+                df_odometry = odometry_to_df(messages)
             case "people_msgs/msg/People":
-                df_people = utils.people_to_df(messages)
+                df_people = people_to_df(messages)
             case "geometry_msgs/msg/PoseStamped":
-                goal = utils.get_goal_position(messages)
+                goal = get_goal_position(messages)
             case "tf2_msgs/msg/TFMessage":
-                df_tf = utils.tf2_messages_to_df(messages)
+                df_tf = tf2_messages_to_df(messages)
             case "nav_msgs/msg/Path":
-                df_path = utils.path_to_df(messages)
+                df_path = path_to_df(messages)
             case _:
                 print(f"Unknown message type: {msg_type}")
     return df_odometry, df_people, df_tf, df_path, goal
@@ -61,13 +78,13 @@ def extract_transforms_from_dataframes(
             frame_id = transform_config["frame_id"]
             child_frame_id = transform_config["child_frame_id"]
             transformations_parent_child = []
-            for timestamp in utils.filter_df_by_time(df_tf)["time"]:
+            for timestamp in filter_df_by_time(df_tf)["time"]:
                 transformations_parent_child.append(
                     pd.Series(
                         {
                             "time": timestamp,
-                            **utils.get_pose_data_from_transform(
-                                utils.get_transform_between_frames(
+                            **get_pose_data_from_transform(
+                                get_transform_between_frames(
                                     df_tf, frame_id, child_frame_id, timestamp
                                 )
                             ),
@@ -75,7 +92,7 @@ def extract_transforms_from_dataframes(
                     )
                 )
             transforms[transform_name] = pd.DataFrame(transformations_parent_child)
-            transforms[transform_name], _ = utils.compute_odometry_data(
+            transforms[transform_name], _ = compute_odometry_data(
                 transforms[transform_name],
                 period=config_odometry["period_for_diff"],
                 max_velocity=config_odometry["max_velocity"],
@@ -86,7 +103,10 @@ def extract_transforms_from_dataframes(
 
 
 def extract_data_from_bag(
-    bag_file: Path, topics: List[str], exp_config: Dict[str, Any], time_limit: Optional[Dict[str, Any]]=None
+    bag_file: Path,
+    topics: List[str],
+    exp_config: Dict[str, Any],
+    time_limit: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """Extract the data from the bag file
     : param bag_file: Path to the bag file
@@ -94,32 +114,38 @@ def extract_data_from_bag(
     : param time_limit: Time limit for the experiment (relative to the start time)
     : return: Dictionary with the extracted data
     """
+    # set logger level to warning to avoid printing too many messages
+    set_logger_level("rosbag2_storage", 30)
     # get the first timestamp in the bag file
-    start_time = utils.get_first_timestamp(bag_file)
+    start_time = get_first_timestamp(bag_file)
 
-    df_odometry, df_people, df_tf, df_path, goal = extract_topics_from_bag(bag_file, topics)
+    df_odometry, df_people, df_tf, df_path, goal = extract_topics_from_bag(
+        bag_file, topics
+    )
     transforms = extract_transforms_from_dataframes(
         df_tf, exp_config["transforms"], exp_config["robot_dynamics"]
     )
     df_agents_list = []
     for person in exp_config["examined_people"]:
-        df_agents_list.append(utils.get_person_data(df_people, person))
+        df_agents_list.append(get_person_data(df_people, person))
     map_file = Path(social_evaluation.__file__).parent.parent.joinpath(
         exp_config["map_file"]
     )
     df_obs, map, map_metadata = extract_obstacle_data(map_file)
-    
+
     if time_limit is not None:
         end_time = time_limit["end_time"] + start_time
         start_time = time_limit["start_time"] + start_time
-        df_odometry = utils.filter_df_by_time(df_odometry, start_time, end_time)
-        df_people = utils.filter_df_by_time(df_people, start_time, end_time)
-        df_path = utils.filter_df_by_time(df_path, start_time, end_time)
+        df_odometry = filter_df_by_time(df_odometry, start_time, end_time)
+        df_people = filter_df_by_time(df_people, start_time, end_time)
+        df_path = filter_df_by_time(df_path, start_time, end_time)
         for transform_name, transform in transforms.items():
-            transforms[transform_name] = utils.filter_df_by_time(transform, start_time, end_time)
+            transforms[transform_name] = filter_df_by_time(
+                transform, start_time, end_time
+            )
         for agent in df_agents_list:
-            agent = utils.filter_df_by_time(agent, start_time, end_time)
-        
+            agent = filter_df_by_time(agent, start_time, end_time)
+
     return {
         "odometry": df_odometry,
         "people": df_people,
@@ -144,10 +170,22 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
     base_path = config["base_path"]
     time_limits = None
     data = {}
-    for experiment_name in experiment_names:
-        for algorithm in algorithms:
-            for i in experiment_ids:
-                bag_path = utils.get_bag_path(experiment_name, algorithm, base_path, i)
+    for experiment_name in tqdm(
+        experiment_names,
+        desc=f"Extracting bags",
+        leave=False,
+    ):
+        for algorithm in tqdm(
+            algorithms,
+            desc=f"Extracting bags for {experiment_name}",
+            leave=False,
+        ):
+            for i in tqdm(
+                experiment_ids,
+                desc=f"Extracting bags for {experiment_name} with {algorithm}",
+                leave=False,
+            ):
+                bag_path = get_bag_path(experiment_name, algorithm, base_path, i)
                 # bag_paths.append(bag_path)
                 if "time_limits" in config and experiment_name in config["time_limits"]:
                     time_limits = config["time_limits"][experiment_name][algorithm][i]
@@ -166,10 +204,8 @@ def extract_obstacle_data(
     : return: Tuple with the obstacle data and the occupancy gridmap
     """
 
-    occupancy_gridmap, metadata = utils.get_map_data(map_file)
-    df_obstacles = utils.retrieve_obstacle_positions(
-        occupancy_gridmap, metadata, pool_size
-    )
+    occupancy_gridmap, metadata = get_map_data(map_file)
+    df_obstacles = retrieve_obstacle_positions(occupancy_gridmap, metadata, pool_size)
     map_metadata = {
         "resolution": metadata["resolution"],
         "origin": metadata["origin"],
