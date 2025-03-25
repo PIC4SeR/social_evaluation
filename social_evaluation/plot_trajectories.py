@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Tuple, Optional
 
 
 from social_evaluation.common import combine_df_robot_agents
-import social_evaluation.trajectory_plots.utils as pu
+import social_evaluation.trajectory_plots as pu
 from tqdm import tqdm
 import argcomplete, argparse
 import yaml

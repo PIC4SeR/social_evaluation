@@ -9,7 +9,7 @@ from matplotlib.animation import ArtistAnimation
 from scipy.ndimage import gaussian_filter1d
 
 from tqdm import trange
-import social_evaluation.trajectory_plots.utils as pu
+import social_evaluation.trajectory_plots as pu
 
 
 def plot_agent(

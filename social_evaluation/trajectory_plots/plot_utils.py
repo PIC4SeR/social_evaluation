@@ -9,7 +9,7 @@ import matplotlib.collections as mcoll
 from scipy.ndimage import rotate
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
-pkg_dir = Path(__file__).resolve().parents[1]
+pkg_dir = Path(__file__).resolve().parents[0]
 images_dir = Path(pkg_dir, "images")
 
 
