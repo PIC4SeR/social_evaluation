@@ -7,11 +7,11 @@ topics:
   # - "/objective"
   - "/plan"
 experiment_names: 
-  - "group"
-  # - "l_shaped_compliant"
-  # - "l_shaped_not_compliant"
-  # - "queue"
-  # - "split_with_two_entry_points"
+  - "group" 
+  - "l_shaped_compliant"
+  - "l_shaped_not_compliant"
+  - "queue"
+  - "split_with_two_entry_points"
 algorithms:
   - "first_planner"
   - "second_planner"

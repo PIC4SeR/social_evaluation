@@ -24,7 +24,7 @@ setup(
     packages=[
         package
         for package in find_packages()
-        if package.startswith("social_evaluation")
+        if package.startswith("social_evaluation") or package.startswith("trajectory_plots")
     ],
     package_data={"social_evaluation": ["py.typed", "version.txt"]},
     install_requires=[

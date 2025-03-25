@@ -16,7 +16,7 @@ from social_evaluation.utils.metrics_utils import combine_df_robot_agents
 from scipy.ndimage import rotate
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.animation import FuncAnimation, ArtistAnimation
-import utils as pu
+import trajectory_plots.utils as pu
 from tqdm import tqdm
 import argcomplete, argparse
 import yaml

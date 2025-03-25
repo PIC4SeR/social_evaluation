@@ -19,8 +19,7 @@ from scipy.ndimage import gaussian_filter1d
 
 from tqdm import trange
 
-import utils.plot_utils as pu
-
+import trajectory_plots.utils as pu
 
 def plot_agent(
     ax: plt.Axes,
