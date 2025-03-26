@@ -6,6 +6,7 @@ import pickle
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import ArtistAnimation
 from typing import Dict, Any, List, Tuple, Optional
 
 
@@ -19,10 +20,15 @@ import social_evaluation
 
 def plot_experiment_aggregate(
     data: dict, exp: List[str], ax: plt.Axes, fig: plt.Figure, time_freq: float = 0.1
-):
-    """Plot the experiment
+) -> ArtistAnimation:
+    """Plot the experiment aggregated in a single plot
+
     :param data: Dictionary with the data
     :param exp: Experiment to plot
+    :param ax: Matplotlib axis
+    :param fig: Matplotlib figure
+    :param time_freq: Frequency of the time to plot
+    :return: Animation object with the aggregated trajectories
     """
 
     goal = data[exp[0]]["goal"]
@@ -52,9 +58,14 @@ def plot_experiment_aggregate(
 def plot_experiment_single(
     data: dict, exp: str, ax: plt.Axes, fig: plt.Figure, time_freq: float = 0.1
 ):
-    """Plot the experiment
+    """Plot the experiment in a single plot
+
     :param data: Dictionary with the data
     :param exp: Experiment to plot
+    :param ax: Matplotlib axis
+    :param fig: Matplotlib figure
+    :param time_freq: Frequency of the time to plot
+    :return: Animation object with the trajectories of the experiment
     """
     df_odometry = pd.DataFrame(data[exp]["odometry"])
     df_people = pd.DataFrame(data[exp]["people"])
@@ -97,8 +108,9 @@ def plot_data(
     ax: plt.Axes,
     fig: plt.Figure,
     time_freq: float = 0.1,
-) -> None:
-    """Plot the data
+) -> ArtistAnimation:
+    """Plot the data in a single plot
+
     :param df_odometry: Dataframe with the odometry
     :param df_people: Dataframe with the people
     :param df_agents_list: List of dataframes with the agents
@@ -110,6 +122,7 @@ def plot_data(
     :param ax: Matplotlib axis
     :param fig: Matplotlib figure
     :param time_freq: Frequency of the time to plot
+    :return: Animation object with the trajectories of the experiment
     """
     pu.plot_map(map, ax, map_metadata["resolution"], map_metadata["origin"])
     if goal is not None:

@@ -99,8 +99,8 @@ The script needs 2 configuration files:
     - social_space_intrusions
     ...
 
-Example usage
--------------
+Example usage of the script
+---------------------------
 
 To extract the data using the `config.yaml` and `experiment_config.yaml` files, run the following command. The script needs the path to the data pickle file that contains the dataframes of the already extracted data.
 
@@ -113,4 +113,3 @@ The script will extract the dataframes from the rosbag file and save them as pic
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:

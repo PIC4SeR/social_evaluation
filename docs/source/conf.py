@@ -22,6 +22,9 @@ extensions = [
     "sphinx.ext.autosummary",  # Generate summary tables
     "sphinx_copybutton",  # Add copy buttons to code blocks
     "sphinx_autodoc_typehints",  # Include type hints
+    "sphinx.ext.autosectionlabel",  # Allow reference sections using its title
+    # "sphinx_autodoc_defaultargs",  # Include default arguments in the documentation
+    # "sphinx_argparse",  # Include argparse help in the documentation
 ]
 
 templates_path = ["_templates"]

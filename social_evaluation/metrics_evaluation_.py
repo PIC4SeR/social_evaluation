@@ -20,6 +20,7 @@ def evaluate_algorithm(
     metrics: Dict[str, Any],
 ) -> pd.DataFrame:
     """Evaluate the algorithm on the data
+
     :param paths: List of paths with the data
     :param data: Dictionary with the data
     :param config: Configuration for the evaluation
@@ -47,10 +48,11 @@ def evaluate_selected_metrics(
     data: Dict[str, Any], config: Dict[str, Any], metrics: Dict[str, Any]
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """Evaluate the selected metrics on the data
+
     :param data: Dictionary with the data
-    :param config: Configuration for the evaluation
-    :param metrics: List of metrics to evaluate
-    :return: Dictionary with the results
+    :param config: Dictionary with the configuration for the evaluation
+    :param metrics: Dictionary with the metrics to evaluate
+    :return: Series with the results of the evaluation
     """
     # Extract the data from the dictionary
     # print(data.keys())
@@ -97,6 +99,7 @@ def evaluate_metrics(
     metrics: List[str],
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """Evaluate the metrics on the data
+
     :param df_odometry: Dataframe with the odometry data
     :param df_people: Dataframe with the people data
     :param df_agents_list: List of dataframes with the agents data
@@ -105,7 +108,7 @@ def evaluate_metrics(
     :param goal: Goal position
     :param config: Configuration for the evaluation
     :param metrics: List of metrics to evaluate
-    :return:
+    :return: Series with the results of the evaluation
     """
 
     # Compute the metrics for the experiment

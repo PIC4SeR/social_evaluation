@@ -13,38 +13,18 @@ Subpackages
    metrics_evaluation/metrics_evaluation
    trajectory_plots/trajectory_plots
 
-Submodules
-----------
+Submodules of the social\_evaluation package
+--------------------------------------------
 
-social\_evaluation.bag\_extraction\_ module
--------------------------------------------
+.. toctree::
+   :maxdepth: 2
 
-.. automodule:: social_evaluation.bag_extraction_
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   bag_extraction_
+   data_filtering_
+   plot_trajectories_
+   metrics_evaluation_
 
-social\_evaluation.data\_filtering\_ module
--------------------------------------------
+   
 
-.. automodule:: social_evaluation.data_filtering_
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
-social\_evaluation.metrics\_evaluation\_ module
------------------------------------------------
-
-.. automodule:: social_evaluation.metrics_evaluation_
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-social\_evaluation.plot\_trajectories\_ module
-----------------------------------------------
-
-.. automodule:: social_evaluation.plot_trajectories_
-   :members:
-   :undoc-members:
-   :show-inheritance:
 

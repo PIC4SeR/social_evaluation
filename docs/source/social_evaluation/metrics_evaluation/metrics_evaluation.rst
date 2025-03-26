@@ -1,8 +1,8 @@
 metrics\_evaluation package
 ===========================
 
-Submodules
-----------
+Submodules of the metrics\_evaluation package
+---------------------------------------------
 
 .. toctree::
    :maxdepth: 2
