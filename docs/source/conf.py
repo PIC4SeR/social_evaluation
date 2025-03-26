@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "social_evaluation"
-copyright = "2025, Andrea Ostuni"
+copyright = "2025, PIC4SeR Andrea Ostuni"
 author = "Andrea Ostuni"
 release = "0.4.0"
 
