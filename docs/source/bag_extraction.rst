@@ -119,6 +119,3 @@ To extract the data using the `config.yaml` and `experiment_config.yaml` files, 
     bag_extraction --config-file config.yaml --exp-config-file experiment_config.yaml --output-file *<path_to_output_file.pickle>*
 
 The script will extract the dataframes from the rosbag file and save them as pickle files in the output pickle file specified by the user.
-
-.. toctree::
-   :maxdepth: 2

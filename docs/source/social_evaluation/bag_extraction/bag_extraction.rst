@@ -1,8 +1,8 @@
 bag\_extraction package
 =======================
 
-Submodules
-----------
+Submodules of the bag\_extraction package
+-----------------------------------------
 
 .. toctree::
    :maxdepth: 2

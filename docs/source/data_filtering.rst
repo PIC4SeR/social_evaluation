@@ -14,13 +14,13 @@ Filtering the data for the social evaluation
 
 TODO: Describe the process of filtering the data for the social evaluation.
 
-Usage
-=====
+Usage of the data filtering package
+===================================
 
 TODO: Describe how to use the data filtering for the social evaluation.
 
-Examples
-========
+Examples of the data filtering
+==============================
 
 TODO: Add examples of the data filtering for the social evaluation.
 

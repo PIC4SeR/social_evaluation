@@ -31,14 +31,16 @@ import os
 
 def extract_topics_from_bag(
     bag_file: Path, topics: List[str]
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Tuple[float, float]]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Extract the topics specified in the config file from the bag file
-    and return the dataframes for each topic.
-    : param bag_file: Path to the bag file
-    : param topics: List of topics to extract
-    : return: Tuple with the dataframes for odometry, people, tf and goal
+    Extract the topics specified in the config file from the bag file and return the dataframes for each topic.
+
+    :param bag_file: Path to the bag file
+    :param topics: List of topics to extract
+
+    :return: Tuple with the dataframes for odometry, people, tf, path and goal
     """
+
     df_odometry = pd.DataFrame()
     df_people = pd.DataFrame()
     df_tf = pd.DataFrame()
@@ -65,10 +67,14 @@ def extract_transforms_from_dataframes(
     df_tf: pd.DataFrame, config_tf: Dict[str, Any], config_odometry: Dict[str, Any]
 ) -> Dict[str, pd.DataFrame]:
     """Extract the selected transforms from the tf dataframes
-    : param df_tf: Dataframe with the tf data
-    : param config_tf: Configuration for the transforms
-    : return: Dictionary with the selected transforms
+
+    :param df_tf: Dataframe with the tf data
+    :param config_tf: Configuration for the transforms
+    :param config_odometry: Configuration for the odometry data
+
+    :return: Dictionary with the selected transforms
     """
+
     transforms = {}
     if df_tf.empty:
         print("No tf data available")
@@ -109,11 +115,14 @@ def extract_data_from_bag(
     time_limit: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """Extract the data from the bag file
-    : param bag_file: Path to the bag file
-    : param exp_config: Configuration for the experiment
-    : param time_limit: Time limit for the experiment (relative to the start time)
-    : return: Dictionary with the extracted data
+
+    :param bag_file: Path to the bag file
+    :param exp_config: Configuration for the experiment
+    :param time_limit: Time limit for the experiment (relative to the start time)
+
+    :return: Dictionary with the extracted data
     """
+
     # set logger level to warning to avoid printing too many messages
     set_logger_level("rosbag2_storage", 30)
     # get the first timestamp in the bag file
@@ -161,9 +170,11 @@ def extract_data_from_bag(
 
 def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
     """Extract the data from the bag files
-    : param config: Configuration for the data extraction
-    : return: Dictionary with the extracted data
+
+    :param config: Configuration for the data extraction
+    :return: Dictionary with the extracted data
     """
+
     experiment_names = config["experiment_names"]
     algorithms = config["algorithms"]
     experiment_ids = config["experiment_ids"]
@@ -200,8 +211,11 @@ def extract_obstacle_data(
     pool_size: int = 1,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Extract the map data from the map file
-    : param map_file: Path to the map file
-    : return: Tuple with the obstacle data and the occupancy gridmap
+
+    :param map_file: Path to the map file
+    :param pool_size: Pool size for the max pooling
+
+    :return: Tuple with the obstacle data and the occupancy gridmap
     """
 
     occupancy_gridmap, metadata = get_map_data(map_file)
@@ -217,8 +231,9 @@ def extract_obstacle_data(
 
 def save_data(data: Dict[str, pd.DataFrame], output_file: Path):
     """Save the extracted data to a pickle file
-    : param data: Dictionary with the extracted data
-    : param output_file: Path to the output file
+
+    :param data: Dictionary with the extracted data
+    :param output_file: Path to the output file
     """
     with open(output_file, "wb") as file:
         pickle.dump(data, file)

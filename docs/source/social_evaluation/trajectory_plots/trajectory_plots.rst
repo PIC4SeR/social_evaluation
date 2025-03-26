@@ -1,8 +1,8 @@
 trajectory\_plots package
 =========================
 
-Submodules
-----------
+Submodules of the trajectory\_plots package
+-------------------------------------------
 
 .. toctree::
    :maxdepth: 2

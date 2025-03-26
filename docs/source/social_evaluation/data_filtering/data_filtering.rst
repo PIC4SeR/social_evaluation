@@ -1,8 +1,8 @@
 data\_filtering package
 =======================
 
-Submodules
-----------
+Submodules of the data\_filtering package
+-----------------------------------------
 
 .. toctree::
    :maxdepth: 2

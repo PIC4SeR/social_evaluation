@@ -15,8 +15,8 @@ Installation
    cd social_evaluation
    pip install -e . # to install the package in editable mode
 
-Usage
-=====
+Usage of the package
+====================
 
 The package is divided into different parts:
 
@@ -66,5 +66,5 @@ Plotting and elaboration of the social evaluation metrics
    :maxdepth: 2  
    :caption: Reference:
    
-   modules
+   social_evaluation/social_evaluation
 

@@ -4,8 +4,8 @@ Elaborate trajectory
 This is a package that provides a way to analyze the trajectory of the robot in the social navigation task.
 The package uses the data that are collected from the rosbag file and converts them to a pickle file. The pickle file is then used to analyze the trajectory of the robot.
 
-Usage
------
+Usage of the plot_trajectories code
+-----------------------------------
 
 After the conversion of the data from the rosbag to the pickle file, you can use the following code to analyze the trajectory of the robot.
 
