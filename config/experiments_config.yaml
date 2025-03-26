@@ -135,3 +135,95 @@ advanced4:
 
   examined_people:
     - U_1.U_1  
+
+group:
+  transforms:
+    - map_to_base_link:
+        child_frame_id: "base_link"
+        frame_id: "map"
+
+  map_file: maps/long_corridor.yaml
+
+  robot_dynamics:
+    period_for_diff: 5
+    max_velocity: 0.5
+    max_angular_velocity: 0.5
+    alpha: 0.1
+
+  examined_people:
+    - U_1.U_1
+    - U_3.U_3
+    - U_5.U_5
+
+l_shaped_compliant:
+  transforms:
+    - map_to_base_link:
+        child_frame_id: "base_link"
+        frame_id: "map"
+
+  map_file: maps/L_shaped_long_corridor.yaml
+
+  robot_dynamics:
+    period_for_diff: 5
+    max_velocity: 0.5
+    max_angular_velocity: 0.5
+    alpha: 0.1
+
+  examined_people:
+    - U_1.U_1
+    - U_2.U_2
+
+l_shaped_not_compliant:
+  transforms:
+    - map_to_base_link:
+        child_frame_id: "base_link"
+        frame_id: "map"
+
+  map_file: maps/L_shaped_long_corridor.yaml
+
+  robot_dynamics:
+    period_for_diff: 5
+    max_velocity: 0.5
+    max_angular_velocity: 0.5
+    alpha: 0.1
+
+  examined_people:
+    - U_1.U_1
+    - U_2.U_2
+
+queue:
+  transforms:
+    - map_to_base_link:
+        child_frame_id: "base_link"
+        frame_id: "map"
+
+  map_file: maps/long_corridor.yaml
+
+  robot_dynamics:
+    period_for_diff: 5
+    max_velocity: 0.5
+    max_angular_velocity: 0.5
+    alpha: 0.1
+
+  examined_people:
+    - U_1.U_1
+    - U_3.U_3
+    - U_5.U_5
+
+split_with_two_entry_points:
+  transforms:
+    - map_to_base_link:
+        child_frame_id: "base_link"
+        frame_id: "map"
+
+  map_file: maps/split_with_two_entry_points_v2.yaml
+
+  robot_dynamics:
+    period_for_diff: 5
+    max_velocity: 0.5
+    max_angular_velocity: 0.5
+    alpha: 0.1
+
+  examined_people:
+    - U_1.U_1
+    - U_2.U_2

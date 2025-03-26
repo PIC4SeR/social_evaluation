@@ -10,15 +10,30 @@ pip install -e . # to install the package in editable mode
 
 ## Usage
 
-The package is divided into two main parts: 
-  - the conversion of the data from the rosbag to the pickle file and the computation of the social evaluation metrics.
-  - the plotting of the social evaluation metrics and the generation of the animation of the social navigation task.
+The package is divided into different parts:
 
-### Conversion of the data
-  - [Conversion of the data](social_evaluation/README.md)
-  
+- The extraction of the data from the rosbags and the conversion of the data into pandas dataframes stored in pickle files
+- The filtering of the data to remove the outliers
+- The plotting of animations of the trajectories of the agents
+- The computation of the social evaluation metrics
+- The plotting of the social evaluation metrics
+
+### Bag extraction and data conversion
+
+- [Conversion of the data](docs/bag_extraction.md)
+
+### Filtering of the data
+
+- [Filtering of the data](docs/data_filtering.md)
+
+### Plotting of the animations of the trajectories
+
+- [Plotting of the animations of the trajectories](docs/trajectory_plots.md)
+
 ### Computation of the social evaluation metrics
-  - [Computation of the social evaluation metrics](social_evaluation/README.md)
 
-### Plotting of the social evaluation metrics
-  - [Plotting of the social evaluation metrics](elaborate/README.md)
+- [Computation of the social evaluation metrics](docs/metrics_evaluation.md)
+
+### Plotting and elaboration of the social evaluation metrics
+
+- [Plotting and elaboration of the social evaluation metrics](docs/metrics_visualization.md)

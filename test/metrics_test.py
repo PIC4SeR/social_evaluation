@@ -1,4 +1,3 @@
-from social_evaluation.utils.metrics import get_metrics
 import pandas as pd
 import pytest
 

@@ -1,0 +1,9 @@
+sphinx
+sphinx_autodoc
+sphinx_napoleon
+sphinx_viewcode
+sphinx_todo
+sphinx_autosummary
+sphinx_copybutton
+sphinx_autodoc_typehints
+sphinx_book_theme
