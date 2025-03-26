@@ -17,6 +17,9 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
     """
     Normalize image data to ensure valid RGB ranges.
     Floats are clipped to [0, 1], integers to [0, 255].
+
+    :param image: Image data as numpy array
+    :return: Normalized image data
     """
     if image.dtype == np.float32 or image.dtype == np.float64:
         # Clip float data to [0, 1]
@@ -30,6 +33,10 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
 def meters_to_pixels(meters: float, ax: plt.Axes) -> float:
     """
     Convert meters to pixels using the current axis limits.
+
+    :param meters: Length in meters
+    :param ax: Axis object
+    :return: Length in pixels
     """
     x0, x1 = ax.get_xbound()
     width_px = ax.get_window_extent().width
@@ -44,6 +51,16 @@ def create_line_collection(
     norm: mcolors.Normalize,
     cmap: str = "viridis",
 ) -> mcoll.LineCollection:
+    """
+    Create a line collection for a trajectory.
+
+    :param x: X-coordinates of the trajectory
+    :param y: Y-coordinates of the trajectory
+    :param velocity: Velocity values for each point
+    :param norm: Normalize object for the velocity
+    :param cmap: Colormap name
+    :return: Line collection object
+    """
     points = np.array([x, y]).T.reshape(-1, 1, 2)
     segments = np.concatenate([points[:-1], points[1:]], axis=1)
     lc = mcoll.LineCollection(segments, cmap=cmap, norm=norm)
@@ -54,6 +71,15 @@ def create_line_collection(
 def create_image_marker(
     image: np.ndarray, desired_width_px: float = 20, angle: float = 0, alpha: float = 1
 ) -> OffsetImage:
+    """
+    Create an image marker for a point on the plot.
+
+    :param image: Image data as numpy array
+    :param desired_width_px: Desired width of the image in pixels
+    :param angle: Rotation angle in radians
+    :param alpha: Transparency value
+    :return: OffsetImage object
+    """
     rotated_image = normalize_image(rotate(image, np.degrees(angle), reshape=True))
     return OffsetImage(
         rotated_image,
@@ -70,6 +96,17 @@ def create_annotation_box(
     angle: float = 0,
     alpha: float = 1,
 ) -> AnnotationBbox:
+    """
+    Create an annotation box with an image marker for a point on the plot.
+
+    :param image: Image data as numpy array
+    :param x: X-coordinate of the point
+    :param y: Y-coordinate of the point
+    :param desired_width_px: Desired width of the image in pixels
+    :param angle: Rotation angle in radians
+    :param alpha: Transparency value
+    :return: AnnotationBbox object
+    """
     image_rot = create_image_marker(
         image, desired_width_px=desired_width_px, angle=angle, alpha=alpha
     )
@@ -83,7 +120,11 @@ def plot_map(
     origin: Tuple[float, float] = (-8.41, -12.7),
 ) -> None:
     """Plot the map
+
     :param map: Numpy array with the map
+    :param ax: Axis object
+    :param resolution: Resolution of the map
+    :param origin: Origin of the map
     """
     color_map = mcolors.ListedColormap(["white", "black"])
     extent = [
@@ -97,8 +138,11 @@ def plot_map(
 
 
 def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.3) -> None:
-    """Plot the goal
+    """Plot the goal position on the map
+
     :param goal: Tuple with the goal position
+    :param ax: Axis object
+    :param radius: Radius of the goal
     """
     goal_image_path = Path(images_dir, "goal.png")
     image_goal = plt.imread(goal_image_path, format="png")
@@ -117,8 +161,12 @@ def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.3) -> N
 def plot_path(
     df_paths: pd.DataFrame, ax: plt.Axes, color: str = "green", linewidth: float = 1
 ) -> None:
-    """Plot the path
+    """Plot the path of the robot on the map
+
     :param df_paths: Dataframe with the path
+    :param ax: Axis object
+    :param color: Color of the path
+    :param linewidth: Width of the path
     """
     # take the first path
     if df_paths.empty:
@@ -139,26 +187,37 @@ def plot_path(
 
 
 def retrieve_image_from_path(image_path: str) -> np.ndarray:
+    """Retrieve image from path
+
+    :param image_path: Path to the image
+    :return: Numpy array with the image
+    """
+
     return np.rot90(plt.imread(image_path, format="png"), 3)
 
 
 def get_images_for_experiment(
     agent_num: int,
 ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+    """Get the images for the robot and agents
+
+    :param agent_num: Number of agents
+    :return: Tuple with the robot image, list with the images for the agents walking and list with the images for the agents standing
+    """
     robot_image_path = Path(pkg_dir, "images", "robot.png")
     robot_image = retrieve_image_from_path(robot_image_path)
 
     agents_image_path_stand = [
         Path(pkg_dir, "images", f"agent{i}_stand.png") for i in range(agent_num)
     ]
-    image_agents_walk = [
-        retrieve_image_from_path(image_path) for image_path in agents_image_path_stand
-    ]
     agents_image_path_walk = [
         Path(pkg_dir, "images", f"agent{i}_walk.png") for i in range(agent_num)
     ]
     image_agents_stand = [
         retrieve_image_from_path(image_path) for image_path in agents_image_path_stand
+    ]
+    image_agents_walk = [
+        retrieve_image_from_path(image_path) for image_path in agents_image_path_walk
     ]
 
     return robot_image, image_agents_walk, image_agents_stand
@@ -169,10 +228,10 @@ def find_ax_limits(
 ) -> Tuple[float, float]:
     """
     Find the limits for the axis
-    df_trajectories: Dataframe with the trajectories
-    agent_num: Number of agents
 
-    return: Tuple with the limits for the axis (min_x, max_x, min_y, max_y)
+    :param df_trajectories: Dataframe with the trajectories
+    :param agent_num: Number of agents
+    :return: Tuple with the limits for the axis (min_x, max_x, min_y, max_y)
     """
     min_x = df_trajectories["position_x"].min()
     max_x = df_trajectories["position_x"].max()
@@ -191,6 +250,13 @@ def find_ax_limits(
 def set_ax_limits_from_trajectories(
     df_trajectories_list: List[pd.DataFrame], agent_num: int, ax: plt.Axes
 ) -> None:
+    """
+    Set the limits for the axis from the trajectories
+
+    :param df_trajectories_list: List with the dataframes with the trajectories
+    :param agent_num: Number of agents
+    :param ax: Axis object
+    """
     min_x, max_x, min_y, max_y = np.inf, -np.inf, np.inf, -np.inf
     for df_trajectories in df_trajectories_list:
         min_x_, max_x_, min_y_, max_y_ = find_ax_limits(df_trajectories, agent_num)
@@ -207,8 +273,9 @@ def find_min_max_velocity(
 ) -> Tuple[float, float]:
     """
     Find the minimum and maximum velocity for the agents
-    df_trajectories: Dataframe with the trajectories
-    agent_num: Number of agents
+
+    :param df_trajectories: Dataframe with the trajectories
+    :param agent_num: Number of agents
 
     return: Tuple with the minimum and maximum velocity
     """
@@ -235,9 +302,9 @@ def find_norm_for_velocity(
     df_trajectories_list: List[pd.DataFrame], agent_num: int
 ) -> mcolors.Normalize:
     """Find the norm for the velocity
+
     :param df_trajectories: Dataframe with the trajectories
     :param agent_num: Number of agents
-
     :return: Normalize object for the velocity
     """
     min_velocity, max_velocity = np.inf, -np.inf

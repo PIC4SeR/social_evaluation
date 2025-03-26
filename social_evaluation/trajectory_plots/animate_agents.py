@@ -22,7 +22,8 @@ def plot_agent(
     static_image_size: int = 5,
     desired_width: float = 0.3,
 ) -> None:
-    """Plot the agent
+    """Plot the agent in the trajectory plot
+
     :param ax: Matplotlib axis
     :param df_trajectories: Dataframe with the trajectories
     :param i: Index of the trajectory
@@ -49,7 +50,6 @@ def plot_agent(
     artist.append(ax.add_collection(lc_agent))
 
     alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1)
-    # alphas = np.array([alpha(j) for j in range(min(i + 1, len(df_trajectories)))])
     lc_agent.set_alpha(alpha(i))
     lc_agent.set_linewidth(3)
 
@@ -96,7 +96,8 @@ def plot_agents(
     static_image_size: int = 5,
     desired_width: float = 0.3,
 ) -> None:
-    """Plot the agents
+    """Plot the agents in the trajectory plot
+
     :param ax: Matplotlib axis
     :param df_trajectories: Dataframe with the trajectories
     :param i: Index of the trajectory
@@ -145,7 +146,8 @@ def animate_trajectories(
     static_image_size: int = 3,
     time_freq: float = 0.1,
 ) -> ArtistAnimation:
-    """Animate the trajectories
+    """Animate the trajectories of the agents
+
     :param df_trajectories: Dataframe with the trajectories
     :param fig: Matplotlib figure
     :param ax: Matplotlib axis
@@ -205,7 +207,8 @@ def plot_trajectories(
     time_end: float = np.inf,
     fig: plt.Figure = None,
 ) -> ArtistAnimation:
-    """Plot the trajectories
+    """Plot the trajectories of the agents
+
     :param df_trajectories: Dataframe with the trajectories
     :param ax: Matplotlib axis
     :param time_freq: Frequency of the time to plot
@@ -251,7 +254,8 @@ def plot_trajectories_aggregated(
     time_end: float = np.inf,
     fig: plt.Figure = None,
 ):
-    """Plot the trajectories
+    """Plot the trajectories of the agents aggregated
+
     :param df_trajectories_list: List of dataframes with the trajectories
     :param ax: Matplotlib axis
     :param time_freq: Frequency of the time to plot
@@ -277,6 +281,17 @@ def animate_trajectories_aggregated(
     norm: mcolors.Normalize,
     time_freq: float = 0.1,
 ) -> ArtistAnimation:
+    """Animate the trajectories of the agents aggregated
+
+    :param df_trajectories_list: List of dataframes with the trajectories
+    :param fig: Matplotlib figure
+    :param ax: Matplotlib axis
+    :param agent_num: Number of agents
+    :param norm: Normalize object for the velocity
+    :param time_freq: Frequency of the time to plot
+    :return: Matplotlib animation object
+    """
+
     df_trajectories_rs_list = []
     for df_trajectories in df_trajectories_list:
         df_trajectories_t = df_trajectories.copy()
@@ -324,6 +339,15 @@ def plot_robot_aggregated(
     artist: List,
     norm: mcolors.Normalize,
 ) -> None:
+    """
+    Plot the robot trajectory aggregated
+
+    :param ax: Matplotlib axis
+    :param df_trajectories_list: List of dataframes with the trajectories
+    :param i: Index of the trajectory
+    :param artist: List of artists
+    :param norm: Normalize object for the velocity
+    """
     for df_trajectories in df_trajectories_list:
 
         x = np.array(df_trajectories["position_x"].iloc[: i + 1])
@@ -335,12 +359,7 @@ def plot_robot_aggregated(
 
         norm = mcolors.Normalize(vmin=0, vmax=time_steps_from_start.max())
         # Plot the line collection for the agnet
-        # lc_agent = pu.create_line_collection(
-        #     x, y, df_trajectories["velocity"].iloc[: i + 1], norm
-        # )
         lc_agent = pu.create_line_collection(x, y, time_steps_from_start, norm)
-        # alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1)
-        # alphas = np.array([alpha(j) for j in range(min(i + 1, len(df_trajectories)))])
         alphas = 0.7
         lc_agent.set_alpha(alphas)
         lc_agent.set_linewidth(3)
@@ -355,6 +374,17 @@ def plot_agents_aggregated(
     agent_num: int,
     norm: mcolors.Normalize,
 ) -> None:
+    """
+    Plot the agents trajectory aggregated
+
+    :param ax: Matplotlib axis
+    :param df_trajectories_list: List of dataframes with the trajectories
+    :param i: Index of the trajectory
+    :param artist: List of artists
+    :param agent_num: Number of agents
+    :param norm: Normalize object for the velocity
+    """
+
     df_trajectories_list_rn = []
     for j in range(agent_num):
         for df_trajectories in df_trajectories_list:
@@ -391,6 +421,16 @@ def plot_agent_aggregated(
     artist: List,
     norm: mcolors.Normalize,
 ) -> None:
+    """
+    Plot the agent trajectory aggregated
+
+    :param ax: Matplotlib axis
+    :param df_trajectories_list: List of dataframes with the trajectories
+    :param i: Index of the trajectory
+    :param artist: List of artists
+    :param norm: Normalize object for the velocity
+    """
+
     trajectories_x = []
     trajectories_y = []
     norm = mcolors.Normalize(vmin=0, vmax=1)

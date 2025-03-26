@@ -18,7 +18,15 @@ from typing import List, Tuple, Union, Dict
 def get_transform_between_frames(
     df: pd.DataFrame, frame_id: str, child_frame_id: str, time: float
 ) -> np.ndarray:
-    """Get the transform between two frames at a given time in the tf tree."""
+    """Get the transform between two frames at a given time in the tf tree.
+
+    :param df: DataFrame containing the tf tree
+    :param frame_id: The frame_id of the parent frame
+    :param child_frame_id: The frame_id of the child frame
+    :param time: The time at which to get the transform
+    :return: The transform between the two frames
+    """
+
     if frame_id == child_frame_id:
         warning("frame_id and child_frame_id are the same.")
         return np.eye(4)
@@ -35,7 +43,11 @@ def get_transform_between_frames(
 
 
 def get_pose_data_from_transform(transform: np.ndarray) -> pd.Series:
-    """Get the position and orientation data from a transform matrix."""
+    """Get the position and orientation data from a transform matrix.
+
+    :param transform: The transform matrix
+    :return: A pandas Series containing the position and orientation data
+    """
     _, _, rotation, translation, _ = decompose_matrix(transform)
     quaternion_rotation = quaternion_from_euler(*rotation)
     return pd.Series(
@@ -57,7 +69,14 @@ def get_pose_data_from_transform(transform: np.ndarray) -> pd.Series:
 def find_ordered_sequence_between_frames(
     df: pd.DataFrame, frame_id: str, child_frame_id: str, time: float
 ) -> List[Dict[str, Union[str, np.ndarray]]]:
-    """Find the ordered sequence of transforms between two frames at a given time in the tf tree."""
+    """Find the ordered sequence of transforms between two frames at a given time in the tf tree.
+
+    :param df: DataFrame containing the tf tree
+    :param frame_id: The frame_id of the parent frame
+    :param child_frame_id: The frame_id of the child frame
+    :param time: The time at which to get the transform
+    :return: The ordered sequence of transforms between the two frames
+    """
     if (
         ordered_sequence := _find_ordered_sequence_between_frames(
             df, frame_id, child_frame_id, time
@@ -76,7 +95,11 @@ def find_ordered_sequence_between_frames(
 def _invert_transform_data(
     transform: Dict[str, Union[str, np.ndarray]],
 ) -> Dict[str, Union[str, np.ndarray]]:
-    """Invert the transform data from child_frame_id to frame_id"""
+    """Invert the transform data from child_frame_id to frame_id
+
+    :param transform: The transform data
+    :return: The inverted transform data
+    """
     transform["transform"] = inverse_matrix(transform["transform"])
     transform["frame_id"], transform["child_frame_id"] = (
         transform["child_frame_id"],
@@ -91,7 +114,14 @@ def _find_ordered_sequence_between_frames(
     """
     Find the ordered sequence of transforms between two frames at a given time in the tf tree.
     use an Dijkstra's algorithm to find the ordered sequence of transforms between frame_id and child_frame_id
+
+    :param df: DataFrame containing the tf tree
+    :param frame_id: The frame_id of the parent frame
+    :param child_frame_id: The frame_id of the child frame
+    :param time: The time at which to get the transform
+    :return: The ordered sequence of transforms between the two frames
     """
+
     df = df[df["time"] == time]
     ordered_sequence = []
     visited = set()
@@ -127,7 +157,16 @@ def compute_odometry_data(
     max_angular_vel: float = 1.0,
     alpha: float = 0.1,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Compute the linear and angular velocity from successive transforms"""
+    """Compute the linear and angular velocity from successive transforms
+
+    :param df: DataFrame containing the tf tree
+    :param period: The number of time steps to use for the velocity calculation
+    :param max_velocity: The maximum velocity of the robot
+    :param max_angular_vel: The maximum angular velocity of the robot
+    :param alpha: The smoothing factor for the exponential moving average filter
+    :return: A DataFrame containing the odometry data
+    """
+
     # remove duplicate rows on the time column
     df = df.drop_duplicates(subset=["time"]).copy()
 

@@ -21,6 +21,14 @@ MsgType = Union[Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath]
 
 
 def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) -> OSPath:
+    """Get the path to the bag file for a given experiment and algorithm.
+
+    :param experiment: The experiment name
+    :param algorithm: The algorithm name
+    :param base_path: The base path
+    :param index: The index of the experiment
+    :return: The path to the bag file
+    """
     model_path = base_path + "/" + experiment + "/" + algorithm
     model_path = OSPath(model_path)
     bag_path = os.path.join(
@@ -30,6 +38,12 @@ def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) ->
 
 
 def get_rosbag_options(path: OSPath, serialization_format: str = "cdr") -> Tuple:
+    """Get the rosbag options for a given path.
+
+    :param path: The path to the bag file
+    :param serialization_format: The serialization format
+    :return: A tuple containing the storage options and the converter options
+    """
     storage_options = rosbag2_py.StorageOptions(uri=path, storage_id="sqlite3")
 
     converter_options = rosbag2_py.ConverterOptions(
@@ -40,6 +54,12 @@ def get_rosbag_options(path: OSPath, serialization_format: str = "cdr") -> Tuple
 
 
 def get_messages_from_bag(bag_path: OSPath, topic: str) -> Tuple[List[MsgType], Type]:
+    """Get messages from a bag file.
+
+    :param bag_path: The path to the bag file
+    :param topic: The topic name
+    :return: A tuple containing the messages and the message type
+    """
     storage_options, converter_options = get_rosbag_options(bag_path)
     bag = rosbag2_py.SequentialReader()
     bag.open(storage_options, converter_options)
@@ -57,6 +77,11 @@ def get_messages_from_bag(bag_path: OSPath, topic: str) -> Tuple[List[MsgType], 
 
 
 def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
+    """Convert a list of Odometry messages to a DataFrame.
+
+    :param odometry_msgs: List of Odometry messages
+    :return: DataFrame containing the odometry data
+    """
     series_list = []
     for msg in odometry_msgs:
         time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -104,6 +129,11 @@ def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
 
 
 def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
+    """Convert a list of People messages to a DataFrame.
+
+    :param people_msgs: List of People messages
+    :return: DataFrame containing the people data
+    """
     people_names = set()
     for msg in people_msgs:
         for person in msg.people:
@@ -141,6 +171,12 @@ def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
 
 
 def laser_scan_to_df(laser_scan_msgs: List[LaserScan]) -> pd.DataFrame:
+    """Convert a list of LaserScan messages to a DataFrame.
+
+    :param laser_scan_msgs: List of LaserScan messages
+    :return: DataFrame containing the laser scan data
+    """
+
     series_list = []
     for msg in laser_scan_msgs:
         time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -174,6 +210,11 @@ def laser_scan_to_df(laser_scan_msgs: List[LaserScan]) -> pd.DataFrame:
 
 
 def path_to_df(path_msgs: List[NavPath]) -> pd.DataFrame:
+    """Convert a list of Path messages to a DataFrame.
+
+    :param path_msgs: List of Path messages
+    :return: DataFrame containing the path data
+    """
     series_list = []
     for msg in path_msgs:
         time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -214,6 +255,11 @@ def path_to_df(path_msgs: List[NavPath]) -> pd.DataFrame:
 
 
 def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
+    """Convert a list of TFMessage messages to a DataFrame.
+
+    :param tf_messages: List of TFMessage messages
+    :return: DataFrame containing the transform data
+    """
     transforms_set = set()
     for msg in tf_messages:
         for transform_stamped in msg.transforms:
@@ -269,7 +315,6 @@ def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
     df = df.combine_first(df_transforms)
     df.sort_values(by="time", inplace=True, ignore_index=True)
     df.infer_objects(copy=False)
-    # df.ffill(inplace=True)
     # Apply to each column containing dictionaries
     df = ffill_dicts(df)
 
@@ -279,6 +324,12 @@ def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
 
 
 def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
+    """Get the data of a person from a DataFrame containing people data.
+
+    :param df: DataFrame containing people data
+    :param person_name: The name of the person
+    :return: DataFrame containing the data of the person
+    """
     df_person = df[["time", person_name]].copy()
     df_person.time = df_person.time.astype(float)
     df_person = df_person.dropna()
@@ -303,6 +354,11 @@ def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
 
 
 def get_goal_position(pose_stamped_msgs: List[PoseStamped]) -> Tuple[float, float]:
+    """Get the goal position from a list of PoseStamped messages.
+
+    :param pose_stamped_msgs: List of PoseStamped messages
+    :return: The goal position
+    """
     goals = {
         (pose_stamped_msg.pose.position.x, pose_stamped_msg.pose.position.y)
         for pose_stamped_msg in pose_stamped_msgs
@@ -312,22 +368,12 @@ def get_goal_position(pose_stamped_msgs: List[PoseStamped]) -> Tuple[float, floa
     return goals.pop()
 
 
-def time_goal_reached(
-    df: pd.DataFrame,
-    goal_position: Tuple[float, float],
-    threshold: float = 0.5,
-    robot_radius: float = 0.3,
-) -> Union[float, None]:
-    df["distance_to_goal"] = (
-        (df["position_x"] - goal_position[0]) ** 2
-        + (df["position_y"] - goal_position[1]) ** 2
-    ) ** 0.5
-    # return the time when the goal was reached
-    if df["distance_to_goal"].min() < threshold + robot_radius:
-        return df[df["distance_to_goal"] < threshold + robot_radius].iloc[0]["time"]
-
-
 def get_first_timestamp(bag_path: OSPath) -> float:
+    """Get the timestamp of the first message in the bag file.
+
+    :param bag_path: The path to the bag file
+    :return: The timestamp of the first message in the bag file
+    """
     storage_options, converter_options = get_rosbag_options(bag_path)
     bag = rosbag2_py.SequentialReader()
     bag.open(storage_options, converter_options)
@@ -340,19 +386,10 @@ def filter_df_by_time(
     return df[(df["time"] >= start_time) & (df["time"] <= end_time)]
 
 
-def get_last_row_in_interval(
-    df: pd.DataFrame, start_time: float, end_time: float
-) -> pd.DataFrame:
-    return filter_df_by_time(df, start_time, end_time).tail(1)
-
-
-def filter_columns(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
-    return df[columns]
-
-
 def ffill_dicts(df: pd.DataFrame) -> pd.DataFrame:
     """Forward-fills dictionary values in object columns row by row.
     This function is useful when a dictionary is spread across multiple rows.
+
     :param df: DataFrame with object columns containing dictionaries
     :return: DataFrame with forward-filled dictionary values
     """

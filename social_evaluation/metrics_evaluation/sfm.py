@@ -30,7 +30,16 @@ def compute_desired_force(
     force_factor_desired: float = config["force_factor_desired"],
     goal_radius: float = config["goal_radius"],
 ):
-    """Compute the desired force for an agent"""
+    """Compute the desired force for an agent
+
+    :param df_agent: DataFrame with the agent data
+    :param agent_goal: Goal position for the agent
+    :param relaxation_time: Relaxation time for the agent
+    :param force_factor_desired: Desired force factor
+    :param goal_radius: Radius of the goal
+    :return: DataFrame with the desired force for the agent
+    """
+
     df_desired = pd.DataFrame()
     df_desired["time"] = df_agent["time"]
     df_desired["agent_position"] = df_agent.apply(
@@ -69,7 +78,15 @@ def compute_obstacle_force(
     force_factor_obstacle: float = config["force_factor_obstacle"],
     force_sigma_obstacle: float = config["force_sigma_obstacle"],
 ) -> pd.DataFrame:
-    """Compute the obstacle force for an agent"""
+    """Compute the obstacle force for an agent
+
+    :param df_agent: DataFrame with the agent data
+    :param df_obstacles: DataFrame with the obstacles data
+    :param force_factor_obstacle: Obstacle force factor
+    :param force_sigma_obstacle: Obstacle force sigma
+    :return: DataFrame with the obstacle force for the agent
+    """
+
     df_agent_ = df_agent.copy()
     closest_obstacle = find_closest_obstacle(df_agent_, df_obstacles)
     df_agent_ = df_agent_.merge(closest_obstacle, on="time", how="right")
@@ -88,7 +105,15 @@ def modulus_obstacle_force(
     force_factor_obstacle: float = config["force_factor_obstacle"],
     force_sigma_obstacle: float = config["force_sigma_obstacle"],
 ):
-    """Compute the obstacle force norm for an agent"""
+    """Compute the obstacle force norm for an agent
+
+    :param df_agent: DataFrame with the agent data
+    :param df_obstacles: DataFrame with the obstacles data
+    :param force_factor_obstacle: Obstacle force factor
+    :param force_sigma_obstacle: Obstacle force sigma
+    :return: DataFrame with the obstacle force norm for the agent
+    """
+
     df_agent_ = df_agent.copy()
     obstacle_force = compute_obstacle_force(
         df_agent_, df_obstacles, force_factor_obstacle, force_sigma_obstacle
@@ -108,7 +133,16 @@ def compute_social_force_two_agents(
     n_prime: float = config["n_prime"],
     force_factor_social: float = config["force_factor_social"],
 ) -> pd.DataFrame:
-    """Compute the social force between two agents"""
+    """Compute the social force between two agents
+
+    :param df_interaction: DataFrame with the interaction data
+    :param lambda_: Lambda parameter
+    :param gamma: Gamma parameter
+    :param n: N parameter
+    :param n_prime: N prime parameter
+    :param force_factor_social: Social force factor
+    :return: DataFrame with the social force between two agents
+    """
 
     if df_interaction.empty:
         return pd.Series([np.nan] * len(df_interaction))
@@ -180,7 +214,12 @@ def compute_social_force_two_agents(
 def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the social force provoked by the other agents to the agent examined
+
+    :param df_agent: DataFrame with the agent data
+    :param df_agents: List of DataFrames with the other agents data
+    :return: DataFrame with the social force provoked by the other agents to the agent examined
     """
+
     df_agent_ = df_agent.copy()
     for i, agent in enumerate(df_agents):
         df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
@@ -202,7 +241,12 @@ def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
 def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the cumulative modulus of the social force provoked by the agents in the agent
+
+    :param df_agent: DataFrame with the agent data
+    :param df_agents: List of DataFrames with the other agents data
+    :return: DataFrame with the cumulative modulus of the social force provoked by the agents in the agent
     """
+
     df_agent_ = df_agent.copy()
     for i, agent in enumerate(df_agents):
         df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
@@ -224,7 +268,12 @@ def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
 def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the social force provoked by the agent in examination to the other agents
+
+    :param df_agent: DataFrame with the agent data
+    :param df_agents: List of DataFrames with the other agents data
+    :return: DataFrame with the social force provoked by the agent in examination to the other agents
     """
+
     df_agent_ = df_agent.copy()
     for i, agent in enumerate(df_agents):
         df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
@@ -248,7 +297,12 @@ def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
 def modulus_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     """
     It computes the cumulative modulus of the social force provoked by the agent in the rest of agents
+
+    :param df_agent: DataFrame with the agent data
+    :param df_agents: List of DataFrames with the other agents data
+    :return: DataFrame with the cumulative modulus of the social force provoked by the agent in the rest of agents
     """
+
     df_agent_ = df_agent.copy()
     for i, agent in enumerate(df_agents):
         df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
@@ -275,9 +329,14 @@ def compute_social_work(
     df_obstacles: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    It computes the social work of the robot in the environment
-    plus the social work provoked by the robot in the other agents
+    It computes the social work of the robot in the environment plus the social work provoked by the robot in the other agents
+
+    :param df_robot: DataFrame with the robot data
+    :param df_agents_list: List of DataFrames with the other agents data
+    :param df_obstacles: DataFrame with the obstacles data
+    :return: DataFrame with the social work of the robot in the environment plus the social work provoked by the robot in the other agents
     """
+
     df_robot_ = df_robot.copy()
     df_agents_list_ = df_agents_list.copy()
     social_force = compute_social_force(df_robot, df_agents_list_)

@@ -2,20 +2,20 @@ import pandas as pd
 import numpy as np
 
 from enum import Enum
-from typing import List, Tuple, Dict
+from typing import Tuple, Dict
 from pathlib import Path
 from yaml import safe_load
-from cv2 import imread, IMREAD_GRAYSCALE, IMREAD_COLOR, IMREAD_UNCHANGED
-from tf_transformations import euler_from_quaternion, quaternion_from_euler
+from cv2 import imread, IMREAD_UNCHANGED
+from tf_transformations import quaternion_from_euler
 import social_evaluation
 
 
 class GridmapMapCost(Enum):
     """Enum class for the cost of the gridmap"""
 
-    FREE = 0
-    OCCUPIED = 100
-    UNKNOWN = -1
+    FREE = 0  #: Free cell in the gridmap
+    OCCUPIED = 100  #: Occupied cell in the gridmap
+    UNKNOWN = -1  #: Unknown cell in the gridmap
 
 
 def orientation_around_z_axis(angle: float) -> np.ndarray:
@@ -186,7 +186,14 @@ def find_closest_obstacle_single(
     robot_radius: float = 0.2,
     max_radius: float = 10.0,
 ) -> pd.Series:
-    """Find the closest obstacle to an agent"""
+    """Find the closest obstacle to an agent
+
+    :param agent: Agent data
+    :param obstacles: Obstacles positions
+    :param robot_radius: Robot radius
+    :param max_radius: Maximum radius to consider
+    :return: Closest obstacle data
+    """
 
     dist_obstacles = np.linalg.norm(
         obstacles - np.array([agent["position_x"], agent["position_y"]]), axis=1
@@ -212,7 +219,15 @@ def find_closest_obstacle(
     robot_radius: float = 0.2,
     max_radius: float = 10.0,
 ):
-    """Find the closest obstacle to an agent"""
+    """Find the closest obstacle to an agent
+
+    :param df_agent: DataFrame with the agent data
+    :param df_obstacles: DataFrame with the obstacles data
+    :param robot_radius: Robot radius
+    :param max_radius: Maximum radius to consider
+    :return: DataFrame with the closest obstacle data
+    """
+
     df_agent_ = df_agent.copy()
     df_agent_.dropna(subset=["time", "position_x"], inplace=True)
     obstacles = np.array(df_obstacles[["x", "y"]])
