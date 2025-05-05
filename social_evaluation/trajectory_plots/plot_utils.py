@@ -208,10 +208,10 @@ def get_images_for_experiment(
     robot_image = retrieve_image_from_path(robot_image_path)
 
     agents_image_path_stand = [
-        Path(pkg_dir, "images", f"agent{i}_stand.png") for i in range(agent_num)
+        Path(pkg_dir, "images", f"agent{i % 3}_stand.png") for i in range(agent_num)
     ]
     agents_image_path_walk = [
-        Path(pkg_dir, "images", f"agent{i}_walk.png") for i in range(agent_num)
+        Path(pkg_dir, "images", f"agent{i % 3}_walk.png") for i in range(agent_num)
     ]
     image_agents_stand = [
         retrieve_image_from_path(image_path) for image_path in agents_image_path_stand

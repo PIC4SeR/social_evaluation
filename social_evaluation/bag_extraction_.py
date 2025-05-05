@@ -5,6 +5,7 @@ from social_evaluation.bag_extraction import (
     odometry_to_df,
     people_to_df,
     path_to_df,
+    string_to_df,
     get_goal_position,
     tf2_messages_to_df,
     get_first_timestamp,
@@ -31,19 +32,23 @@ import os
 
 def extract_topics_from_bag(
     bag_file: Path, topics: List[str]
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[
+    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame
+]:
     """
     Extract the topics specified in the config file from the bag file and return the dataframes for each topic.
 
     :param bag_file: Path to the bag file
     :param topics: List of topics to extract
 
-    :return: Tuple with the dataframes for odometry, people, tf, path and goal
+    :return: Tuple with the dataframes for odometry, people, tf, path, goal and result
     """
 
     df_odometry = pd.DataFrame()
     df_people = pd.DataFrame()
     df_tf = pd.DataFrame()
+    df_path = pd.DataFrame()
+    df_result = pd.DataFrame()
     goal = None
     for topic in topics:
         messages, msg_type = get_messages_from_bag(bag_file, topic)
@@ -58,9 +63,11 @@ def extract_topics_from_bag(
                 df_tf = tf2_messages_to_df(messages)
             case "nav_msgs/msg/Path":
                 df_path = path_to_df(messages)
+            case "std_msgs/msg/String":
+                df_result = string_to_df(messages)
             case _:
                 print(f"Unknown message type: {msg_type}")
-    return df_odometry, df_people, df_tf, df_path, goal
+    return df_odometry, df_people, df_tf, df_path, goal, df_result
 
 
 def extract_transforms_from_dataframes(
@@ -128,7 +135,7 @@ def extract_data_from_bag(
     # get the first timestamp in the bag file
     start_time = get_first_timestamp(bag_file)
 
-    df_odometry, df_people, df_tf, df_path, goal = extract_topics_from_bag(
+    df_odometry, df_people, df_tf, df_path, goal, df_result = extract_topics_from_bag(
         bag_file, topics
     )
     transforms = extract_transforms_from_dataframes(
@@ -161,6 +168,7 @@ def extract_data_from_bag(
         "path": df_path,
         "agents": df_agents_list,
         "goal": goal,
+        "result": df_result,
         "transforms": transforms,
         "obstacles": df_obs,
         "map": map,

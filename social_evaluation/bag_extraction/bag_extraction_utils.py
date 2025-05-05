@@ -10,6 +10,7 @@ from rosidl_runtime_py.utilities import get_message
 from tf_transformations import euler_from_quaternion, compose_matrix
 import numpy as np
 
+from std_msgs.msg import String
 from people_msgs.msg import People, Person
 from nav_msgs.msg import Odometry, Path as NavPath
 from tf2_msgs.msg import TFMessage
@@ -17,7 +18,9 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
 from typing import List, Tuple, Union, Dict, Type
 
-MsgType = Union[Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath]
+MsgType = Union[
+    Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath, String, Person
+]
 
 
 def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) -> OSPath:
@@ -146,12 +149,15 @@ def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
         people = []
         for person in msg.people:
             tags = dict(zip(person.tagnames, person.tags))
+            # check if the tag is behavior or behaviour
+
+            behavior_tag = "behavior" if "behavior" in tags else "behaviour"
             people.append(
                 {
                     "name": person.name,
                     "id": tags["id"],
                     "group_id": tags["group_id"],
-                    "behaviour": tags["behaviour"],
+                    "behavior": tags[behavior_tag],
                     "position_x": person.position.x,
                     "position_y": person.position.y,
                     "yaw": person.position.z,
@@ -323,6 +329,28 @@ def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
     return df
 
 
+def string_to_df(string_msgs: List[String]) -> pd.DataFrame:
+    """Convert a list of String messages to a DataFrame.
+
+    :param string_msgs: List of String messages
+    :return: DataFrame containing the string data
+    """
+    series_list = []
+    for msg in string_msgs:
+        time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        data = msg.data
+        series_list.append(
+            pd.Series(
+                {
+                    "time": time,
+                    "data": data,
+                }
+            )
+        )
+    df = pd.DataFrame(series_list)
+    return df
+
+
 def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
     """Get the data of a person from a DataFrame containing people data.
 
@@ -342,8 +370,8 @@ def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
     df_person["angular_velocity_z"] = df_person[person_name].apply(
         lambda x: x["angular_velocity_z"]
     )
-    df_person["behaviour"] = (
-        df_person[person_name].apply(lambda x: x["behaviour"]).astype(str)
+    df_person["behavior"] = (
+        df_person[person_name].apply(lambda x: x["behavior"]).astype(str)
     )
     df_person["group_id"] = (
         df_person[person_name].apply(lambda x: x["group_id"]).astype(str)
