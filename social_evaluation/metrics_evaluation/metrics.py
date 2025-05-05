@@ -854,6 +854,8 @@ def social_work_per_second(
         df_agents_list=df_agents_list, df_robot=df_robot_, df_obstacles=df_obstacles
     )
     df_robot_ = df_robot_.merge(df_social_work, on="time", how="left")
+    if df_robot_["social_work"].count() == 0:
+        return 0, df_robot_[["time", "social_work"]]
     return (
         df_robot_["social_work"].sum() / df_robot_["social_work"].count(),
         df_robot_[["time", "social_work"]],

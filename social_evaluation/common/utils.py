@@ -70,7 +70,6 @@ def combine_df_robot_agents(
         if "time" not in attribute
         and "id" not in attribute
         and "behavior" not in attribute
-        and "behaviour" not in attribute
     ]
     df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
         method="cubic", order=3
@@ -104,7 +103,6 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
         if "time" not in attribute
         and "id" not in attribute
         and "behavior" not in attribute
-        and "behaviour" not in attribute
     ]
     df_agents.infer_objects(copy=False)
     df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
