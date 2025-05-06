@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from social_evaluation.common import (
     time_goal_reached,
     combine_df_robot_agents,
@@ -49,6 +49,8 @@ from social_evaluation.metrics_evaluation.sfm import (
     The metrics are implemented as functions that take the following arguments:
     - df_robot: pandas DataFrame with the robot's data
     - df_agents_list: list of pandas DataFrames with the agents' data
+    - df_obstacles: pandas DataFrame with the obstacles' data
+    - df_results: pandas DataFrame with the results of the experiment
     - goal: tuple with the goal position (x, y)
     - robot_radius: float with the robot's radius
     - agent_radius: float with the agent's radius
@@ -64,6 +66,7 @@ from social_evaluation.metrics_evaluation.sfm import (
     The metrics return a tuple with the metric value and a pandas DataFrame with the metric values over time.
     
     Metrics:
+    - experiment_result: Compute the experiment result
     - time_to_reach_goal: Compute the total time of the robot's trajectory
     - path_length: Compute the total length of the robot's trajectory
     - cumulative_heading_changes: Compute the cumulative heading changes of the robot
@@ -98,6 +101,27 @@ from social_evaluation.metrics_evaluation.sfm import (
     - obstacle_force_on_robot: Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot
 
 """
+
+
+@metric("experiment_result")
+def experiment_result(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_results: Optional[pd.DataFrame] = None,
+    **kwargs,
+) -> str:
+    """Compute the experiment result
+
+    :param df_agents_list: list of pandas DataFrames with the agents' data
+    :param df_robot: pandas DataFrame with the robot's data
+    :param df_results: pandas DataFrame with the results of the experiment
+    :return: str with the experiment result
+    """
+    if df_results is None:
+        print("No results dataframe provided")
+        return ""
+    return df_results.iloc[0]["data"]
 
 
 @metric("time_to_reach_goal")

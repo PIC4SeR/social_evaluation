@@ -337,12 +337,10 @@ def string_to_df(string_msgs: List[String]) -> pd.DataFrame:
     """
     series_list = []
     for msg in string_msgs:
-        time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         data = msg.data
         series_list.append(
             pd.Series(
                 {
-                    "time": time,
                     "data": data,
                 }
             )

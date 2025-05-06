@@ -2,7 +2,7 @@
 # PYTHON_ARGCOMPLETE_OK
 from social_evaluation.metrics_evaluation import metrics_dict
 import pandas as pd
-from typing import Dict, Any, Union, List, Tuple
+from typing import Dict, Any, Union, List, Tuple, Optional
 from pathlib import Path, PosixPath
 import argcomplete, argparse
 import yaml
@@ -62,6 +62,7 @@ def evaluate_selected_metrics(
     df_obstacles = data["obstacles"]
     transforms = data["transforms"]
     goal = data["goal"]
+    df_results = data["result"] if "result" in data else None
 
     # check dtypes
     for df in df_agents_list:
@@ -83,6 +84,7 @@ def evaluate_selected_metrics(
         goal,
         config,
         metrics_list,
+        df_results=df_results,
     )
 
     return results, results_df
@@ -97,6 +99,7 @@ def evaluate_metrics(
     goal: Union[np.ndarray, Tuple[float, float]],
     config: Dict[str, Any],
     metrics: List[str],
+    df_results: Optional[pd.DataFrame] = None,
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """Evaluate the metrics on the data
 
@@ -126,6 +129,7 @@ def evaluate_metrics(
             robot_data,
             df_obstacles=df_obstacles,
             goal=goal,
+            df_results=df_results,
             **config,
         )
         if isinstance(result, Tuple):
