@@ -31,7 +31,7 @@ def plot_agent(
     :param norm: Normalize object for the velocity
     :param image_agent: Image for the agent
     :param static_image_size: Number of static images to plot
-    :param desired_width: Desired width of the agent
+    :param desired_width: Desired width of the agent in meters
     """
     x = np.array(df_trajectories["position_x"].iloc[: i + 1])
     y = np.array(df_trajectories["position_y"].iloc[: i + 1])
@@ -178,7 +178,7 @@ def animate_trajectories(
             norm,
             image_robot,
             static_image_size,
-            desired_width=0.1,
+            desired_width=0.3,
         )
         plot_agents(
             ax,
@@ -189,7 +189,7 @@ def animate_trajectories(
             norm,
             image_agents_walk,
             static_image_size,
-            desired_width=0.1,
+            desired_width=0.3,
         )
         artists.append(artist)
 

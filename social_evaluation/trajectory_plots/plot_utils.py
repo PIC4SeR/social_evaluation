@@ -137,7 +137,7 @@ def plot_map(
     ax.imshow(map, cmap=color_map, extent=extent)
 
 
-def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.3) -> None:
+def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.2) -> None:
     """Plot the goal position on the map
 
     :param goal: Tuple with the goal position
