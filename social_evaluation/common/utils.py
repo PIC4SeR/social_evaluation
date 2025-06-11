@@ -70,6 +70,7 @@ def combine_df_robot_agents(
         if "time" not in attribute
         and "id" not in attribute
         and "behavior" not in attribute
+        and "frame_id" not in attribute
     ]
     df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
         method="cubic", order=3
@@ -142,3 +143,65 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
     return df_agents
+
+
+def align_df_agents_on_time(df_agents_list: List[pd.DataFrame]) -> List[pd.DataFrame]:
+    """Align the agents dataframes on time
+
+    :param df_agents_list: List of dataframes with the agents data
+    :return: List of dataframes with the aligned data"""
+
+    if not df_agents_list:
+        return []
+
+    # Get the union of all timestamps
+    all_times = pd.concat([df["time"] for df in df_agents_list]).sort_values().unique()
+
+    aligned_agents = []
+    for agent_df in df_agents_list:
+        # Set time as index and reindex to all_times
+
+        agent_df = agent_df.set_index("time").reindex(all_times)
+        agent_df.infer_objects(copy=False)
+        # interpolate missing values
+
+        attributes = [
+            attribute
+            for attribute in agent_df.columns.to_list()
+            if "time" not in attribute
+            and "id" not in attribute
+            and "behavior" not in attribute
+            and "frame_id" not in attribute
+        ]
+
+        agent_df.loc[:, attributes] = agent_df.loc[:, attributes].interpolate(
+            method="cubic", order=3
+        )
+        # forward-fill and backward-fill missing values
+        agent_df.ffill(inplace=True)
+        agent_df.bfill(inplace=True)
+        # reset index and rename the time column
+        agent_df = agent_df.reset_index().rename(columns={"index": "time"})
+        # drop duplicate timestamps
+        agent_df = agent_df.drop_duplicates(subset="time")
+
+        aligned_agents.append(agent_df)
+    return aligned_agents
+
+
+def align_df_robot_agents(
+    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
+) -> Tuple[pd.DataFrame, List[pd.DataFrame]]:
+    """Align the robot and agents dataframes on time
+
+    :param df_robot: Dataframe with the robot data
+    :param df_agents_list: List of dataframes with the agents data
+    :return: Tuple of dataframes with the aligned data"""
+
+    df_agents_list_ = df_agents_list.copy()
+    # Align agents on time
+    df_agents_list_.insert(0, df_robot)
+
+    aligned_agents = align_df_agents_on_time(df_agents_list_)
+
+    return aligned_agents[0], aligned_agents[1:]

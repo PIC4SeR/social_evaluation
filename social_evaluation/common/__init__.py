@@ -4,6 +4,8 @@ from social_evaluation.common.utils import (
     combine_df_robot_and_agent,
     normalize_angle,
     combine_df_agents,
+    align_df_agents_on_time,
+    align_df_robot_agents,
 )
 from social_evaluation.common.map_utils import (
     find_closest_obstacle,
@@ -15,6 +17,8 @@ __all__ = [
     "time_goal_reached",
     "combine_df_robot_agents",
     "combine_df_robot_and_agent",
+    "align_df_agents_on_time",
+    "align_df_robot_agents",
     "normalize_angle",
     "combine_df_agents",
     "find_closest_obstacle",
