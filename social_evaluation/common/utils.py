@@ -80,6 +80,37 @@ def combine_df_robot_agents(
     return df_agents
 
 
+def combine_df_robot_and_agent(
+    df_robot: pd.DataFrame, df_agent: pd.DataFrame
+) -> pd.DataFrame:
+    """Combine the robot and agents dataframes
+
+    :param df_robot: Dataframe with the robot data
+    :param df_agent: Dataframe with the agent data
+    :return: Dataframe with the combined data
+    """
+    df_interaction = df_robot
+    df_interaction = df_robot.merge(
+        df_agent, on="time", how="outer", suffixes=("_1", "_2")
+    )
+    df_interaction.infer_objects(copy=False)
+    attributes = [
+        attribute
+        for attribute in df_interaction.columns.to_list()
+        if "time" not in attribute
+        and "id" not in attribute
+        and "behavior" not in attribute
+        and "frame_id" not in attribute
+    ]
+    df_interaction.loc[:, attributes] = df_interaction.loc[:, attributes].interpolate(
+        method="cubic", order=3
+    )
+    df_interaction.ffill(inplace=True)
+    df_interaction.dropna(inplace=True)
+    df_interaction.reset_index(drop=True, inplace=True)
+    return df_interaction
+
+
 def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
     """Combine the agents dataframes interpolating the missing values and filling the NaN values
 

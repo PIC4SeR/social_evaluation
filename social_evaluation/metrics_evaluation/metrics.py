@@ -158,7 +158,6 @@ def robot_path_length(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
-    period: int = 4,
     **kwargs,
 ) -> float:
     """Compute the total length of the robot's trajectory
@@ -169,9 +168,14 @@ def robot_path_length(
     :return: float with the total length of the robot's trajectory
     """
 
-    step_x = df_robot.position_x.diff(periods=period)
-    step_y = df_robot.position_y.diff(periods=period)
-    return np.sum(np.sqrt(step_x**2 + step_y**2))
+    step_x = df_robot.position_x.diff().dropna()
+    step_y = df_robot.position_y.diff().dropna()
+
+    # compute the step as the mean difference on a period
+    step = np.array([step_x, step_y]).T
+    # compute the length of each step
+    step_length = np.linalg.norm(step, axis=1)
+    return np.sum(step_length)
 
 
 @metric("cumulative_heading_changes")

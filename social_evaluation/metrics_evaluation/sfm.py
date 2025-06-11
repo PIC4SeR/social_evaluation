@@ -1,8 +1,11 @@
 import numpy as np
 import pandas as pd
 from typing import List, Optional
-from social_evaluation.common import find_closest_obstacle
-from social_evaluation.common import normalize_angle
+from social_evaluation.common import (
+    find_closest_obstacle,
+    normalize_angle,
+    combine_df_robot_and_agent,
+)
 
 config = {
     "force_factor_desired": 2.0,
@@ -228,7 +231,7 @@ def compute_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     df_agent_ = df_agent.copy()
     valid_agents = []
     for i, agent in enumerate(df_agents):
-        df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
+        df_interaction = combine_df_robot_and_agent(df_agent, agent)
         df_interaction.dropna(inplace=True)
         if df_interaction.empty:
             continue
@@ -257,7 +260,7 @@ def modulus_social_force(df_agent: pd.DataFrame, df_agents: List[pd.DataFrame]):
     df_agent_ = df_agent.copy()
     valid_agents = []
     for i, agent in enumerate(df_agents):
-        df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
+        df_interaction = combine_df_robot_and_agent(df_agent, agent)
         df_interaction.dropna(inplace=True)
         if df_interaction.empty:
             continue
@@ -287,7 +290,7 @@ def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
 
     df_agent_ = df_agent.copy()
     for i, agent in enumerate(df_agents):
-        df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
+        df_interaction = combine_df_robot_and_agent(df_agent, agent)
         df_interaction.dropna(inplace=True)
         # use time as index to join the dataframes
         social_force = compute_social_force_two_agents(df_interaction)
@@ -317,7 +320,7 @@ def modulus_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
     df_agent_ = df_agent.copy()
     valid_agents = []
     for i, agent in enumerate(df_agents):
-        df_interaction = df_agent.merge(agent, on="time", suffixes=("_1", "_2"))
+        df_interaction = combine_df_robot_and_agent(df_agent, agent)
         df_interaction.dropna(inplace=True)
         if df_interaction.empty:
             continue

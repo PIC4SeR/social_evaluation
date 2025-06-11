@@ -1,6 +1,7 @@
 from social_evaluation.common.utils import (
     time_goal_reached,
     combine_df_robot_agents,
+    combine_df_robot_and_agent,
     normalize_angle,
     combine_df_agents,
 )
@@ -13,6 +14,7 @@ from social_evaluation.common.map_utils import (
 __all__ = [
     "time_goal_reached",
     "combine_df_robot_agents",
+    "combine_df_robot_and_agent",
     "normalize_angle",
     "combine_df_agents",
     "find_closest_obstacle",
