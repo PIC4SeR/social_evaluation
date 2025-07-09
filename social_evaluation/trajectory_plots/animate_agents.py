@@ -162,6 +162,8 @@ def animate_trajectories(
     artists = []
     df_trajectories_t = df_trajectories.copy()
     df_trajectories_t["time"] = pd.to_datetime(df_trajectories["time"], unit="s")
+    df_trajectories_t = df_trajectories_t[~df_trajectories_t["time"].duplicated(keep='first')]
+    
     df_trajectories_t.set_index("time", inplace=True)
     # Resample the data to the time frequency
 
@@ -178,7 +180,7 @@ def animate_trajectories(
             norm,
             image_robot,
             static_image_size,
-            desired_width=0.3,
+            desired_width=0.15,
         )
         plot_agents(
             ax,
@@ -189,7 +191,7 @@ def animate_trajectories(
             norm,
             image_agents_walk,
             static_image_size,
-            desired_width=0.3,
+            desired_width=0.13,
         )
         artists.append(artist)
 
@@ -457,8 +459,6 @@ def plot_agent_aggregated(
 
         # get a vector with the time steps from the start in seconds
 
-        # trajectories_x.append(x_smooth)
-        # trajectories_y.append(y_smooth)
         lc_agent = pu.create_line_collection(
             x_smooth,
             y_smooth,

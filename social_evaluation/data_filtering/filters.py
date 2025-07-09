@@ -151,7 +151,8 @@ def hampel_filter_with_mirror_padding(
     s_padded = pd.concat([left_pad, series, right_pad]).reset_index(drop=True)
 
     # Define the Hampel function to apply on each window.
-
+    # Fill missing values in s_padded using forward fill, then backward fill as fallback
+    s_padded = s_padded.ffill().bfill()
     # Apply the rolling Hampel filter on the padded series.
 
     filtered_padded = hampel_filter(s_padded, window=window, n_sigma=n_sigma)

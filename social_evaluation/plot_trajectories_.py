@@ -229,6 +229,7 @@ def main():
                     experiment_name, algorithm_name, f"experiment_{exp_id}.png"
                 )
             )
+            plt.close(fig)
     if plot_aggregated:
         for i, exp in enumerate(
             tqdm(experiment_algorithm.keys(), desc=f"Plotting aggregated experiments")
