@@ -37,7 +37,14 @@ def get_map_data(map_path: Path) -> Tuple[np.ndarray, Dict[str, any]]:
     :return: Occupancy gridmap and metadata
     """
     # Load data
-    map_dir = Path(social_evaluation.__file__).parent.parent.joinpath("maps")
+    # if map_path is relative, make it relative to the maps directory
+    if not map_path.is_absolute():
+        map_dir = Path(social_evaluation.__file__).parent.parent.joinpath("maps")
+        map_path = map_dir.joinpath(map_path)
+    else:
+        map_dir = map_path.parent
+    assert map_path.exists()
+
     with open(map_path, "r") as file:
         data = safe_load(file)
     metadata = data

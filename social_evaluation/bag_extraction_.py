@@ -84,7 +84,6 @@ def extract_transforms_from_dataframes(
 
     transforms = {}
     if df_tf.empty:
-        print("No tf data available")
         return transforms
     for transform in config_tf:
         for transform_name, transform_config in transform.items():
@@ -143,7 +142,9 @@ def extract_data_from_bag(
     )
     df_agents_list = []
     for person in exp_config["examined_people"]:
-        df_agents_list.append(get_person_data(df_people, person))
+        person_data = get_person_data(df_people, person)
+        if not person_data.empty:
+            df_agents_list.append(person_data)
     map_file = Path(social_evaluation.__file__).parent.parent.joinpath(
         exp_config["map_file"]
     )
@@ -159,8 +160,9 @@ def extract_data_from_bag(
             transforms[transform_name] = filter_df_by_time(
                 transform, start_time, end_time
             )
-        for agent in df_agents_list:
+        for i, agent in enumerate(df_agents_list):
             agent = filter_df_by_time(agent, start_time, end_time)
+            df_agents_list[i] = agent
 
     return {
         "odometry": df_odometry,
@@ -207,7 +209,12 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
                 bag_path = get_bag_path(experiment_name, algorithm, base_path, i)
                 # bag_paths.append(bag_path)
                 if "time_limits" in config and experiment_name in config["time_limits"]:
-                    time_limits = config["time_limits"][experiment_name][algorithm][i]
+                    if algorithm in config["time_limits"][experiment_name]:
+                        time_limits = config["time_limits"][experiment_name][algorithm][
+                            i
+                        ]
+                    else:
+                        time_limits = None
                 data[bag_path] = extract_data_from_bag(
                     bag_path, config["topics"], config[experiment_name], time_limits
                 )

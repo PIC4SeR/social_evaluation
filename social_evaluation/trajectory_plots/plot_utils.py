@@ -50,6 +50,7 @@ def create_line_collection(
     velocity: np.ndarray,
     norm: mcolors.Normalize,
     cmap: str = "viridis",
+    color: str = None,
 ) -> mcoll.LineCollection:
     """
     Create a line collection for a trajectory.
@@ -59,12 +60,17 @@ def create_line_collection(
     :param velocity: Velocity values for each point
     :param norm: Normalize object for the velocity
     :param cmap: Colormap name
+    :param color: Single color for the line (overrides colormap if provided)
     :return: Line collection object
     """
     points = np.array([x, y]).T.reshape(-1, 1, 2)
     segments = np.concatenate([points[:-1], points[1:]], axis=1)
     lc = mcoll.LineCollection(segments, cmap=cmap, norm=norm)
-    lc.set_array(velocity)
+
+    if color is not None:
+        lc.set_color(color)
+    else:
+        lc.set_array(velocity)
     return lc
 
 
@@ -266,6 +272,18 @@ def set_ax_limits_from_trajectories(
         max_y = max(max_y, max_y_)
     ax.set_xlim(min_x - 1, max_x + 1)
     ax.set_ylim(min_y - 1, max_y + 1)
+
+
+def set_ax_limits(ax: plt.Axes, ax_limits: List[float]) -> None:
+    """
+    Set the limits for the axis
+
+    :param ax: Axis object
+    :param ax_limits: List with the limits for the axis [min_x, max_x, min_y, max_y]
+    """
+    if ax_limits is not None and len(ax_limits) == 4:
+        ax.set_xlim(ax_limits[0], ax_limits[1])
+        ax.set_ylim(ax_limits[2], ax_limits[3])
 
 
 def find_min_max_velocity(

@@ -12,6 +12,7 @@ from .plot_utils import (
     find_norm_for_velocity,
     set_ax_limits_from_trajectories,
     find_ax_limits,
+    set_ax_limits,
 )
 
 from .animate_agents import (

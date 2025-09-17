@@ -19,7 +19,13 @@ import social_evaluation
 
 
 def plot_experiment_aggregate(
-    data: dict, exp: List[str], ax: plt.Axes, fig: plt.Figure, time_freq: float = 0.1
+    data: dict,
+    exp: List[str],
+    ax: plt.Axes,
+    fig: plt.Figure,
+    time_freq: float = 0.1,
+    animate: bool = True,
+    colorbar: bool = False,
 ) -> ArtistAnimation:
     """Plot the experiment aggregated in a single plot
 
@@ -50,13 +56,27 @@ def plot_experiment_aggregate(
         pu.plot_goal(goal, ax)
 
     ani = pu.plot_trajectories_aggregated(
-        df_trajectories_list, ax, fig=fig, time_freq=time_freq
+        df_trajectories_list,
+        ax,
+        fig=fig,
+        time_freq=time_freq,
+        animate=animate,
+        colorbar=colorbar,
     )
     return ani
 
 
 def plot_experiment_single(
-    data: dict, exp: str, ax: plt.Axes, fig: plt.Figure, time_freq: float = 0.1
+    data: dict,
+    exp: str,
+    ax: plt.Axes,
+    fig: plt.Figure,
+    time_freq: float = 0.1,
+    animate: bool = True,
+    colorbar: bool = False,
+    image_width_multi: float = 1.0,
+    fontsize: int = 16,
+    ax_limits: Optional[List[float]] = None,
 ):
     """Plot the experiment in a single plot
 
@@ -65,6 +85,11 @@ def plot_experiment_single(
     :param ax: Matplotlib axis
     :param fig: Matplotlib figure
     :param time_freq: Frequency of the time to plot
+    :param animate: Whether to animate the plot or not
+    :param colorbar: Whether to plot the colorbar or not
+    :param image_width_multi: Multiplier for the image width
+    :param fontsize: Font size for the plot
+    :param ax_limits: Limits for the axis
     :return: Animation object with the trajectories of the experiment
     """
     df_odometry = pd.DataFrame(data[exp]["odometry"])
@@ -91,6 +116,11 @@ def plot_experiment_single(
         ax,
         fig,
         time_freq=time_freq,
+        animate=animate,
+        colorbar=colorbar,
+        image_width_multi=image_width_multi,
+        fontsize=fontsize,
+        ax_limits=ax_limits,
     )
     return ani
 
@@ -108,6 +138,11 @@ def plot_data(
     ax: plt.Axes,
     fig: plt.Figure,
     time_freq: float = 0.1,
+    colorbar: bool = False,
+    animate: bool = True,
+    image_width_multi: float = 1.0,
+    fontsize: int = 16,
+    ax_limits: Optional[List[float]] = None,
 ) -> ArtistAnimation:
     """Plot the data in a single plot
 
@@ -122,6 +157,11 @@ def plot_data(
     :param ax: Matplotlib axis
     :param fig: Matplotlib figure
     :param time_freq: Frequency of the time to plot
+    :param colorbar: Whether to plot the colorbar or not
+    :param animate: Whether to animate the plot or not
+    :param image_width_multi: Multiplier for the image width
+    :param fontsize: Font size for the plot
+    :param ax_limits: Limits for the axis
     :return: Animation object with the trajectories of the experiment
     """
     pu.plot_map(map, ax, map_metadata["resolution"], map_metadata["origin"])
@@ -129,8 +169,6 @@ def plot_data(
         pu.plot_goal(goal, ax)
     else:
         print("No goal to plot")
-    if df_path is not None:
-        pu.plot_path(df_path, ax)
     if "map_to_base_link" in transforms:
         df_robot = transforms["map_to_base_link"]
     else:
@@ -139,7 +177,20 @@ def plot_data(
         df_robot=df_robot, df_agents_list=df_agents_list
     )
 
-    ani = pu.plot_trajectories(df_trajectories, ax, fig=fig, time_freq=time_freq)
+    ani = pu.plot_trajectories(
+        df_trajectories,
+        ax,
+        fig=fig,
+        time_freq=time_freq,
+        colorbar=colorbar,
+        animate=animate,
+        image_width_multi=image_width_multi,
+        ax_limits=ax_limits,
+    )
+
+    ax.set_xlabel("X (m)", fontsize=fontsize)
+    ax.set_ylabel("Y (m)", fontsize=fontsize)
+    ax.tick_params(axis="both", which="major", labelsize=fontsize - 2)
     return ani
 
 
@@ -177,6 +228,12 @@ def main():
 
     plot_single = config["plot_single"]
     plot_aggregated = config["plot_aggregated"]
+    plot_colorbar = config.get("plot_colorbar", False)
+    time_freq = config.get("time_freq", 0.1)
+    save_gif = config.get("save_gif", True)
+    save_fig = config.get("save_fig", True)
+    fontsize = config.get("fontsize", 16)
+    image_width_multi = config.get("image_width_multi", 1.0)
 
     if args.pickle_file != PosixPath("None"):
         pickle_file = Path(args.pickle_file)
@@ -185,7 +242,6 @@ def main():
     else:
         data = {}
         for exp in config["experiments"]:
-            print(f"Loading experiment {config['experiments']}")
             print(f"Loading experiment {config['experiments'][exp]['path']}")
             exp_path = Path(config["experiments"][exp]["path"])
             with open(exp_path, "rb") as f:
@@ -210,26 +266,44 @@ def main():
             fig, ax = plt.subplots()
             fig.set_size_inches(10, 10)
 
-            ani = plot_experiment_single(data, exp, ax, fig)
+            ani = plot_experiment_single(
+                data,
+                exp,
+                ax,
+                fig,
+                time_freq=time_freq,
+                animate=save_gif,
+                colorbar=plot_colorbar,
+                image_width_multi=image_width_multi,
+                fontsize=fontsize,
+                ax_limits=config["experiments"][experiment_name].get("ax_limits", None),
+            )
 
             if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
                 os.makedirs(args.output_dir.joinpath(experiment_name, algorithm_name))
 
             # save the animation as gif
-            ani.save(
-                args.output_dir.joinpath(
-                    experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
-                ),
-                writer="imagemagick",
-                fps=10,
-            )
-            # save the last frame of the animation
-            fig.savefig(
-                args.output_dir.joinpath(
-                    experiment_name, algorithm_name, f"experiment_{exp_id}.png"
+            if save_gif:
+                ani.save(
+                    args.output_dir.joinpath(
+                        experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
+                    ),
+                    writer="imagemagick",
+                    fps=1 / time_freq,
                 )
-            )
-            plt.close(fig)
+            # save the last frame of the animation
+            if save_fig:
+                fig.savefig(
+                    args.output_dir.joinpath(
+                        experiment_name, algorithm_name, f"experiment_{exp_id}.png"
+                    ),
+                    bbox_inches="tight",
+                    transparent=True,
+                    format="png",
+                )
+            plt.close()
+            ax.clear()
+            fig.clear()
     if plot_aggregated:
         for i, exp in enumerate(
             tqdm(experiment_algorithm.keys(), desc=f"Plotting aggregated experiments")
@@ -241,23 +315,38 @@ def main():
                 experiment_name, algorithm_name = exp.split("_")
 
                 ani = plot_experiment_aggregate(
-                    data, experiment_algorithm[exp], ax, fig
+                    data,
+                    experiment_algorithm[exp],
+                    ax,
+                    fig,
+                    animate=save_gif,
+                    time_freq=time_freq,
+                    colorbar=plot_colorbar,
                 )
 
                 # save the animation as gif
-                ani.save(
-                    args.output_dir.joinpath(
-                        experiment_name, algorithm_name, f"aggregated_trajectories.gif"
-                    ),
-                    writer="imagemagick",
-                    fps=10,
-                )
-                # save the last frame of the animation
-                fig.savefig(
-                    args.output_dir.joinpath(
-                        experiment_name, algorithm_name, f"aggregated_trajectories.png"
+                if save_gif:
+                    ani.save(
+                        args.output_dir.joinpath(
+                            experiment_name,
+                            algorithm_name,
+                            f"aggregated_trajectories.gif",
+                        ),
+                        writer="imagemagick",
+                        fps=10,
                     )
-                )
+                # save the last frame of the animation
+                if save_fig:
+                    fig.savefig(
+                        args.output_dir.joinpath(
+                            experiment_name,
+                            algorithm_name,
+                            f"aggregated_trajectories.png",
+                        )
+                    )
+                plt.close()
+                ax.clear()
+                fig.clear()
 
 
 if __name__ == "__main__":

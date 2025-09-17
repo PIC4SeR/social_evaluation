@@ -356,6 +356,9 @@ def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
     :param person_name: The name of the person
     :return: DataFrame containing the data of the person
     """
+    if person_name not in df.columns:
+        warning(f"Person {person_name} not found in DataFrame columns.")
+        return pd.DataFrame()
     df_person = df[["time", person_name]].copy()
     df_person.time = df_person.time.astype(float)
     df_person = df_person.dropna()
