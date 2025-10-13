@@ -43,6 +43,8 @@ setup(
         "argcomplete",
         "pyyaml",
         "argparse",
+        "tf-transformations",
+        "transforms3d>=0.4.1",
     ],
     entry_points={
         "console_scripts": [
