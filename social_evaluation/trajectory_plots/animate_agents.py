@@ -53,7 +53,7 @@ def plot_agent(
     )
     artist.append(ax.add_collection(lc_agent))
 
-    alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1)
+    alpha = lambda i: min(0.1 + 0.7 * (i / len(df_trajectories)) ** 2, 0.8)
     lc_agent.set_alpha(alpha(i))
     lc_agent.set_linewidth(3)
 
