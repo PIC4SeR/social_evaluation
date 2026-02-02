@@ -52,6 +52,7 @@ setup(
             "data_filtering=social_evaluation.data_filtering_:main",
             "plot_trajectories=social_evaluation.plot_trajectories_:main",
             "metrics_evaluation=social_evaluation.metrics_evaluation_:main",
+            "benchmark_report=social_evaluation.benchmark_report_:main",
         ],
     },
     extras_require={
