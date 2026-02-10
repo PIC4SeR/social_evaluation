@@ -270,8 +270,13 @@ def set_ax_limits_from_trajectories(
         max_x = max(max_x, max_x_)
         min_y = min(min_y, min_y_)
         max_y = max(max_y, max_y_)
-    ax.set_xlim(min_x - 1, max_x + 1)
-    ax.set_ylim(min_y - 1, max_y + 1)
+    try:
+        ax.set_xlim(min_x - 1, max_x + 1)
+        ax.set_ylim(min_y - 1, max_y + 1)
+    except ValueError:
+        print(
+            f"Could not set axis limits: min_x={min_x}, max_x={max_x}, min_y={min_y}, max_y={max_y}"
+        )
 
 
 def set_ax_limits(ax: plt.Axes, ax_limits: List[float]) -> None:

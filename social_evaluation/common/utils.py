@@ -59,10 +59,12 @@ def combine_df_robot_agents(
     :param df_agents_list: List of dataframes with the agents data
     :return: Dataframe with the combined data
     """
-    df_agents = df_robot
+    df_agents = df_robot.copy()
     df_agents = df_agents.merge(
         combine_df_agents(df_agents_list), on="time", how="outer"
     )
+    # Remove columns that are entirely NaN (e.g., missing robot velocities)
+    df_agents.dropna(axis=1, how="all", inplace=True)
     df_agents.infer_objects(copy=False)
     attributes = [
         attribute

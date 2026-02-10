@@ -26,6 +26,7 @@ def plot_experiment_aggregate(
     time_freq: float = 0.1,
     animate: bool = True,
     colorbar: bool = False,
+    use_odometry: bool = False,
 ) -> ArtistAnimation:
     """Plot the experiment aggregated in a single plot
 
@@ -43,9 +44,12 @@ def plot_experiment_aggregate(
 
     df_trajectories_list = []
     for i in range(1, len(exp)):
+        source = data[exp[i]]["odometry"]
+        if not use_odometry and "map_to_base_link" in data[exp[i]]["transforms"]:
+            source = data[exp[i]]["transforms"]["map_to_base_link"]
         df_trajectories_list.append(
             combine_df_robot_agents(
-                df_robot=data[exp[i]]["transforms"]["map_to_base_link"],
+                df_robot=source,
                 df_agents_list=data[exp[i]]["agents"],
             )
         )
@@ -77,6 +81,7 @@ def plot_experiment_single(
     image_width_multi: float = 1.0,
     fontsize: int = 16,
     ax_limits: Optional[List[float]] = None,
+    use_odometry: bool = False,
 ):
     """Plot the experiment in a single plot
 
@@ -121,6 +126,7 @@ def plot_experiment_single(
         image_width_multi=image_width_multi,
         fontsize=fontsize,
         ax_limits=ax_limits,
+        use_odometry=use_odometry,
     )
     return ani
 
@@ -143,6 +149,7 @@ def plot_data(
     image_width_multi: float = 1.0,
     fontsize: int = 16,
     ax_limits: Optional[List[float]] = None,
+    use_odometry: bool = False,
 ) -> ArtistAnimation:
     """Plot the data in a single plot
 
@@ -169,7 +176,7 @@ def plot_data(
         pu.plot_goal(goal, ax)
     else:
         print("No goal to plot")
-    if "map_to_base_link" in transforms:
+    if not use_odometry and "map_to_base_link" in transforms:
         df_robot = transforms["map_to_base_link"]
     else:
         df_robot = df_odometry
@@ -230,6 +237,7 @@ def main():
     plot_aggregated = config["plot_aggregated"]
     plot_colorbar = config.get("plot_colorbar", False)
     time_freq = config.get("time_freq", 0.1)
+    use_odometry = config.get("use_odometry", False)
     save_gif = config.get("save_gif", True)
     save_fig = config.get("save_fig", True)
     fontsize = config.get("fontsize", 16)
@@ -277,6 +285,7 @@ def main():
                 image_width_multi=image_width_multi,
                 fontsize=fontsize,
                 ax_limits=config["experiments"][experiment_name].get("ax_limits", None),
+                use_odometry=use_odometry,
             )
 
             if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
@@ -284,13 +293,18 @@ def main():
 
             # save the animation as gif
             if save_gif:
-                ani.save(
-                    args.output_dir.joinpath(
-                        experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
-                    ),
-                    writer="imagemagick",
-                    fps=1 / time_freq,
-                )
+                if ani is None:
+                    print(
+                        f"Skipping GIF for {experiment_name}/{algorithm_name}/{exp_id}: no frames."
+                    )
+                else:
+                    ani.save(
+                        args.output_dir.joinpath(
+                            experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
+                        ),
+                        writer="imagemagick",
+                        fps=1 / time_freq,
+                    )
             # save the last frame of the animation
             if save_fig:
                 fig.savefig(
@@ -322,19 +336,25 @@ def main():
                     animate=save_gif,
                     time_freq=time_freq,
                     colorbar=plot_colorbar,
+                    use_odometry=use_odometry,
                 )
 
                 # save the animation as gif
                 if save_gif:
-                    ani.save(
-                        args.output_dir.joinpath(
-                            experiment_name,
-                            algorithm_name,
-                            f"aggregated_trajectories.gif",
-                        ),
-                        writer="imagemagick",
-                        fps=10,
-                    )
+                    if ani is None:
+                        print(
+                            f"Skipping aggregated GIF for {experiment_name}/{algorithm_name}: no frames."
+                        )
+                    else:
+                        ani.save(
+                            args.output_dir.joinpath(
+                                experiment_name,
+                                algorithm_name,
+                                f"aggregated_trajectories.gif",
+                            ),
+                            writer="imagemagick",
+                            fps=10,
+                        )
                 # save the last frame of the animation
                 if save_fig:
                     fig.savefig(

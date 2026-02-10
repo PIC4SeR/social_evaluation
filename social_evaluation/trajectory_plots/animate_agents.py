@@ -190,6 +190,9 @@ def animate_trajectories(
     df_trajectories_rs = df_trajectories_t.asfreq(
         f"{int(1000 * time_freq)}ms", method="ffill"
     )
+    if df_trajectories_rs.empty:
+        print("No trajectory samples after resampling; skipping animation.")
+        return None
     if animate:
         for i in trange(len(df_trajectories_rs)):
             artist = plot_trajectory_frame(
@@ -224,7 +227,7 @@ def animate_trajectories(
             ax.add_artist(art)
         fig.canvas.draw()
 
-    if colorbar:
+    if colorbar and artists:
         cb = plt.colorbar(artists[-1][0], ax=ax)
         cb.ax.set_ylabel("Velocity [m/s]")
     return ani
@@ -415,8 +418,17 @@ def animate_trajectories_aggregated(
         )
         df_trajectories_rs_list.append(df_trajectories_rs)
 
+    if not df_trajectories_rs_list:
+        print("No trajectories provided for aggregation; skipping animation.")
+        return None
+
+    max_len = max(len(df) for df in df_trajectories_rs_list)
+    if max_len == 0:
+        print("No aggregated trajectory samples after resampling; skipping animation.")
+        return None
+
     artists = []
-    for i in trange(max([len(df) for df in df_trajectories_rs_list])):
+    for i in trange(max_len):
         artist = []
         plot_robot_aggregated(
             ax,
@@ -438,8 +450,9 @@ def animate_trajectories_aggregated(
         artists.append(artist)
 
     ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
-    cb = plt.colorbar(artists[-1][0], ax=ax)
-    cb.ax.set_ylabel("Time [s]")
+    if artists:
+        cb = plt.colorbar(artists[-1][0], ax=ax)
+        cb.ax.set_ylabel("Time [s]")
     return ani
 
 

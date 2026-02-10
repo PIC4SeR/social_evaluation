@@ -15,34 +15,6 @@ import numpy as np
 from typing import List, Tuple, Union, Dict
 
 
-def _spline_interpolate_with_fallback(
-    series: pd.Series, order: int = 3
-) -> pd.Series:
-    """Interpolate using a spline when possible, otherwise fall back gracefully."""
-
-    valid_points = series.count()
-    if valid_points == 0:
-        return series
-    if valid_points == 1:
-        return series.ffill().bfill()
-
-    effective_order = min(max(1, valid_points - 1), order)
-
-    try:
-        return series.interpolate(
-            method="spline",
-            order=effective_order,
-            limit_direction="both",
-        )
-    except (ValueError, TypeError) as exc:
-        warning(
-            "Falling back to linear interpolation for %s due to: %s",
-            getattr(series, "name", "series"),
-            exc,
-        )
-        return series.interpolate(method="linear", limit_direction="both")
-
-
 def get_transform_between_frames(
     df: pd.DataFrame, frame_id: str, child_frame_id: str, time: float
 ) -> np.ndarray:
@@ -228,14 +200,14 @@ def compute_odometry_data(
 
     # replace the zeros in the velocity columns with the interpolation of the previous and next values
     df.infer_objects(copy=False)
-    df["velocity_x"] = _spline_interpolate_with_fallback(
-        df.loc[:, "velocity_x"].replace(0, np.nan)
+    df["velocity_x"] = (
+        df.loc[:, "velocity_x"].replace(0, np.nan).interpolate("spline", order=3)
     )
-    df["velocity_y"] = _spline_interpolate_with_fallback(
-        df.loc[:, "velocity_y"].replace(0, np.nan)
+    df["velocity_y"] = (
+        df.loc[:, "velocity_y"].replace(0, np.nan).interpolate("spline", order=3)
     )
-    df["velocity_z"] = _spline_interpolate_with_fallback(
-        df.loc[:, "velocity_z"].replace(0, np.nan)
+    df["velocity_z"] = (
+        df.loc[:, "velocity_z"].replace(0, np.nan).interpolate("spline", order=3)
     )
 
     # smooth the velocity data using an exponential moving average filter
@@ -284,14 +256,20 @@ def compute_odometry_data(
     df[df["angular_velocity_z"].abs() > max_angular_vel] = np.nan
 
     # replace the zeros in the angular velocity columns with the interpolation of the previous and next values
-    df["angular_velocity_x"] = _spline_interpolate_with_fallback(
-        df.loc[:, "angular_velocity_x"].replace(0, np.nan)
+    df["angular_velocity_x"] = (
+        df.loc[:, "angular_velocity_x"]
+        .replace(0, np.nan)
+        .interpolate("spline", order=3)
     )
-    df["angular_velocity_y"] = _spline_interpolate_with_fallback(
-        df.loc[:, "angular_velocity_y"].replace(0, np.nan)
+    df["angular_velocity_y"] = (
+        df.loc[:, "angular_velocity_y"]
+        .replace(0, np.nan)
+        .interpolate("spline", order=3)
     )
-    df["angular_velocity_z"] = _spline_interpolate_with_fallback(
-        df.loc[:, "angular_velocity_z"].replace(0, np.nan)
+    df["angular_velocity_z"] = (
+        df.loc[:, "angular_velocity_z"]
+        .replace(0, np.nan)
+        .interpolate("spline", order=3)
     )
 
     # smooth the angular velocity data using an exponential moving average filter
