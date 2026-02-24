@@ -85,10 +85,12 @@ def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> Non
     metric_tables_cfg = outputs_cfg.get("export_metric_tables")
     if _is_enabled(metric_tables_cfg, False):
         scale = 0.71
-        cmap_name = "viridis"
+        cmap_name: Optional[str] = None
         if isinstance(metric_tables_cfg, Mapping):
             scale = float(metric_tables_cfg.get("scale", scale))
-            cmap_name = str(metric_tables_cfg.get("cmap_name", cmap_name))
+            raw_cmap = metric_tables_cfg.get("cmap_name")
+            if raw_cmap is not None:
+                cmap_name = str(raw_cmap).strip() or None
         _log("Exporting metric summary tables")
         report.export_metric_tables(scale=scale, cmap_name=cmap_name)
 

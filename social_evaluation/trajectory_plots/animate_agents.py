@@ -12,6 +12,15 @@ from tqdm import trange
 import social_evaluation.trajectory_plots as pu
 
 
+def smooth_angle_series(values: np.ndarray, sigma: float = 2) -> np.ndarray:
+    """Smooth angular data without introducing wraparound spins."""
+    if values.size == 0:
+        return values
+    sin_smooth = gaussian_filter1d(np.sin(values), sigma=sigma)
+    cos_smooth = gaussian_filter1d(np.cos(values), sigma=sigma)
+    return np.arctan2(sin_smooth, cos_smooth)
+
+
 def plot_agent(
     ax: plt.Axes,
     df_trajectories: pd.DataFrame,
@@ -43,7 +52,7 @@ def plot_agent(
 
     x_smooth = gaussian_filter1d(x, sigma=2)
     y_smooth = gaussian_filter1d(y, sigma=2)
-    yaw_smooth = gaussian_filter1d(yaw, sigma=2)
+    yaw_smooth = smooth_angle_series(yaw, sigma=2)
 
     desired_width_px = pu.meters_to_pixels(desired_width, ax) * image_width_multi
 
@@ -70,7 +79,10 @@ def plot_agent(
 
     if static_image_size > 0:
         len_df = len(df_trajectories)
-        for j in np.arange(0, len_df, len_df // static_image_size):
+        if len_df == 0:
+            return
+        step = max(len_df // static_image_size, 1)
+        for j in np.arange(0, len_df, step):
             if j < i:
                 image_agent_rot = pu.create_image_marker(
                     image_agent,

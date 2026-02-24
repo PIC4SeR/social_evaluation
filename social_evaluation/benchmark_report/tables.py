@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -104,6 +104,7 @@ class TableExportMixin:
         metric_labels: Dict[str, str],
         *,
         weight_by_success: bool = False,
+        cmap_name: Optional[str] = "viridis",
     ) -> pd.DataFrame:
         mean_table, std_table = self._metric_summary_tables(metric_labels)
         mean_df = mean_table.set_index([r"\textbf{Experiment}", r"\textbf{Navigator}"])
@@ -121,6 +122,9 @@ class TableExportMixin:
         column_order = [success_col] + list(metric_labels.values())
         mean_df = mean_df[column_order]
         std_df = std_df[column_order]
+        column_directions: Dict[str, str] = {success_col: "UP"}
+        for metric_key, metric_label in metric_labels.items():
+            column_directions[metric_label] = self.metric_direction(metric_key)
 
         if weight_by_success:
             success_fraction = (self.success_rate[success_col] / 100.0).clip(
@@ -169,8 +173,9 @@ class TableExportMixin:
             styled_section = style_report_latex(
                 mean_df=mean_df.loc[experiment],
                 std_dev_df=std_df.loc[experiment],
-                cmap_name="viridis",
+                cmap_name=cmap_name,
                 alpha=0.3,
+                metric_directions=column_directions,
             )
             styled_df.loc[[experiment]] = styled_section.values
         return styled_df
@@ -178,40 +183,50 @@ class TableExportMixin:
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
-    def get_styled_metric_table(self, group_key: str) -> pd.DataFrame:
+    def get_styled_metric_table(
+        self, group_key: str, *, cmap_name: Optional[str] = "viridis"
+    ) -> pd.DataFrame:
         metric_labels = self.config.metric_groups[group_key]
-        return self._build_styled_metric_table(metric_labels)
+        return self._build_styled_metric_table(metric_labels, cmap_name=cmap_name)
 
-    def get_weighted_metric_table(self, group_key: str) -> pd.DataFrame:
+    def get_weighted_metric_table(
+        self, group_key: str, *, cmap_name: Optional[str] = "viridis"
+    ) -> pd.DataFrame:
         metric_labels = self.config.metric_groups[group_key]
-        return self._build_styled_metric_table(metric_labels, weight_by_success=True)
+        return self._build_styled_metric_table(
+            metric_labels, weight_by_success=True, cmap_name=cmap_name
+        )
 
     # ------------------------------------------------------------------
     # Export routines
     # ------------------------------------------------------------------
     def export_metric_tables(
-        self, scale: float = 0.71, cmap_name: str = "viridis"
+        self, scale: float = 0.71, cmap_name: Optional[str] = "viridis"
     ) -> None:
         output_path = self.output_dir_tables()
         output_path.mkdir(parents=True, exist_ok=True)
         for group_key, metric_labels in self.config.metric_groups.items():
-            styled_df = self._build_styled_metric_table(metric_labels)
-            colorbar_file = output_path / f"{group_key}_colormap.pdf"
-            self._ensure_parent_directory(colorbar_file)
-            fig, ax = plt.subplots(figsize=(3.2, 0.35))
-            ax.axis("off")
-            norm = Normalize(0.0, 1.0)
-            fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.45)
-            fig.colorbar(
-                plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.get_cmap(cmap_name)),
-                ax=ax,
-                orientation="horizontal",
-                fraction=0.8,
-                alpha=self.config.alpha,
+            styled_df = self._build_styled_metric_table(
+                metric_labels, cmap_name=cmap_name
             )
-            ax.tick_params(axis="both", which="both", length=0)
-            fig.savefig(colorbar_file, bbox_inches="tight")
-            plt.close(fig)
+            colorbar_file: Optional[Path] = None
+            if cmap_name:
+                colorbar_file = output_path / f"{group_key}_colormap.pdf"
+                self._ensure_parent_directory(colorbar_file)
+                fig, ax = plt.subplots(figsize=(3.2, 0.35))
+                ax.axis("off")
+                norm = Normalize(0.0, 1.0)
+                fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.45)
+                fig.colorbar(
+                    plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.get_cmap(cmap_name)),
+                    ax=ax,
+                    orientation="horizontal",
+                    fraction=0.8,
+                    alpha=self.config.alpha,
+                )
+                ax.tick_params(axis="both", which="both", length=0)
+                fig.savefig(colorbar_file, bbox_inches="tight")
+                plt.close(fig)
             export_latex_table(
                 report_latex=styled_df,
                 filename=str(output_path / f"{group_key}_summary_by_navigator.tex"),
@@ -225,9 +240,13 @@ class TableExportMixin:
                 scale=scale,
                 multirow=True,
                 colorbar_path=colorbar_file,
-                colorbar_caption="Color scale (low to high)",
+                colorbar_caption="Color scale (low to high)"
+                if colorbar_file
+                else None,
             )
-            weighted_styled_df = self.get_weighted_metric_table(group_key)
+            weighted_styled_df = self.get_weighted_metric_table(
+                group_key, cmap_name=cmap_name
+            )
             weighted_caption = self.config.metric_captions.get(group_key, "").strip()
             if weighted_caption:
                 weighted_caption = f"{weighted_caption} (success-weighted)"
@@ -248,7 +267,9 @@ class TableExportMixin:
                 scale=scale,
                 multirow=True,
                 colorbar_path=colorbar_file,
-                colorbar_caption="Color scale (low to high)",
+                colorbar_caption="Color scale (low to high)"
+                if colorbar_file
+                else None,
             )
 
     def export_success_rate_tables(self) -> None:

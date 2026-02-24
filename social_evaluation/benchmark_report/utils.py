@@ -1,9 +1,10 @@
+import math
 import os
 from pathlib import Path
+from typing import Any, Mapping, Optional, Union
 
-import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Union, Optional
+import pandas as pd
 
 
 def export_latex_tabular(
@@ -141,34 +142,115 @@ def export_latex_table(
 
 
 def style_report_latex(
-    mean_df,
-    cmap_name: str = "Blues",
+    mean_df: pd.DataFrame,
+    cmap_name: Optional[str] = "Blues",
     alpha: float = 0.7,
     std_dev_df: Optional[Union[float, pd.Series, pd.DataFrame]] = None,
-):
+    metric_directions: Optional[Mapping[str, str]] = None,
+) -> pd.DataFrame:
     from matplotlib import cm
+
+    styled_df = mean_df.copy().astype(object)
+
+    def _resolve_direction(column: str) -> str:
+        if metric_directions and column in metric_directions:
+            return metric_directions[column].upper()
+        lowered = column.lower()
+        if "down" in lowered:
+            return "DOWN"
+        return "UP"
+
+    def _get_std_cell(row, col):
+        if std_dev_df is None:
+            return None
+        if isinstance(std_dev_df, pd.DataFrame):
+            if row in std_dev_df.index and col in std_dev_df.columns:
+                return std_dev_df.loc[row, col]
+            return None
+        if isinstance(std_dev_df, pd.Series):
+            if row in std_dev_df.index:
+                return std_dev_df.loc[row]
+            if col in std_dev_df.index:
+                return std_dev_df.loc[col]
+            return None
+        return std_dev_df
+
+    def _format_plain_cell(value: Any, std_value: Any, *, bold: bool) -> str:
+        try:
+            value_float = float(value)
+        except (TypeError, ValueError):
+            value_float = float("nan")
+        if math.isnan(value_float):
+            return "-"
+        value_text = f"{value_float:.2f}"
+        std_text = ""
+        if std_value is not None:
+            try:
+                std_float = float(std_value)
+            except (TypeError, ValueError):
+                std_float = float("nan")
+            if not math.isnan(std_float) and std_float != 0:
+                std_text = rf" \pm {std_float:.2f}"
+            if bold:
+                std_text = rf"\mathbf{{{std_text}}}"
+        if bold:
+            value_text = rf"\mathbf{{{value_text}}}"
+        if not std_text:
+            return rf"${value_text}$"
+        return rf"${value_text}{std_text}$"
+
+    if not cmap_name:
+        for col in mean_df.columns:
+            direction = _resolve_direction(col)
+            numeric_series = pd.to_numeric(mean_df[col], errors="coerce")
+            highlight_rows = set()
+            if not numeric_series.dropna().empty:
+                if direction == "DOWN":
+                    best_value = numeric_series.min()
+                else:
+                    best_value = numeric_series.max()
+                try:
+                    best_float = float(best_value)
+                except (TypeError, ValueError):
+                    best_float = float("nan")
+                if not math.isnan(best_float):
+                    for row, candidate in numeric_series.items():
+                        if pd.isna(candidate):
+                            continue
+                        if math.isclose(
+                            float(candidate),
+                            best_float,
+                            rel_tol=1e-9,
+                            abs_tol=1e-12,
+                        ):
+                            highlight_rows.add(row)
+            for row in mean_df.index:
+                std_cell = _get_std_cell(row, col)
+                bold = row in highlight_rows
+                styled_df.loc[row, col] = _format_plain_cell(
+                    mean_df.loc[row, col], std_cell, bold=bold
+                )
+        return styled_df
 
     cmap = cm.get_cmap(cmap_name)
     norms = []
-    for i, col in enumerate(mean_df.columns):
+    for col in mean_df.columns:
         if "%" in col or "Success Rate" in col or "SR" in col:
             norms.append(plt.Normalize(0, 100))  # type: ignore
         else:
             norms.append(plt.Normalize(mean_df[col].min(), mean_df[col].max()))  # type: ignore
 
-    def blend_with_white(rgb, alpha):
-        return tuple(alpha * c + (1 - alpha) * 1.0 for c in rgb)
+    def blend_with_white(rgb, alpha_value):
+        return tuple(alpha_value * c + (1 - alpha_value) * 1.0 for c in rgb)
 
-    styled_df = mean_df.copy().astype(object)
     for row in mean_df.index:
-        for col in mean_df.columns:
+        for col_idx, col in enumerate(mean_df.columns):
             val = mean_df.loc[row, col]
-            # handle NaNs gracefully for coloring
+            direction = _resolve_direction(col)
             try:
-                if "down" in col.lower():
-                    norm_val = 1 - norms[mean_df.columns.get_loc(col)](val)
-                else:
-                    norm_val = norms[mean_df.columns.get_loc(col)](val)
+                norm_val = norms[col_idx](val)
+                if direction == "DOWN":
+                    norm_val = 1 - norm_val
             except Exception:
                 norm_val = 0.5
             rgb = cmap(norm_val)[:3]
@@ -179,37 +261,23 @@ def style_report_latex(
             except Exception:
                 styled_val = "-"
             styled_df.loc[row, col] = rf"\cellcolor[rgb]{{{color}}} {styled_val}"
-            if std_dev_df is not None:
-                # determine the correct std dev value per-cell
-                if isinstance(std_dev_df, pd.DataFrame):
-                    std_cell = (
-                        std_dev_df.loc[row, col]
-                        if (row in std_dev_df.index and col in std_dev_df.columns)
-                        else float("nan")
-                    )
-                    if row not in std_dev_df.index or col not in std_dev_df.columns:
-                        continue
-                elif isinstance(std_dev_df, pd.Series):
-                    # series indexed by row (algorithm) or col; try row first then col
-                    std_cell = (
-                        std_dev_df.loc[row]
-                        if row in std_dev_df.index
-                        else (
-                            std_dev_df.loc[col]
-                            if col in std_dev_df.index
-                            else float("nan")
-                        )
-                    )
-                else:  # scalar
-                    std_cell = std_dev_df
+            std_cell = _get_std_cell(row, col)
+            if std_dev_df is not None and std_cell is not None:
                 try:
-                    styled_std = rf"\pm {float(std_cell):.2f}" if std_cell != 0 else ""  # type: ignore
-                except Exception:
+                    std_float = float(std_cell)
+                except (TypeError, ValueError):
+                    std_float = float("nan")
+                if math.isnan(std_float):
                     styled_std = "-"
-
+                elif std_float == 0:
+                    styled_std = ""
+                else:
+                    styled_std = rf"\pm {std_float:.2f}"
                 styled_df.loc[row, col] = (
                     rf"\cellcolor[rgb]{{{color}}} ${styled_val} {styled_std}$"
                 )
+            elif std_dev_df is not None:
+                styled_df.loc[row, col] = rf"\cellcolor[rgb]{{{color}}} ${styled_val}$"
 
     return styled_df
 

@@ -17,6 +17,40 @@ from geometry_msgs.msg import PoseStamped
 from typing import List, Tuple, Union, Dict, Type
 
 
+def _interpolate_with_fallback(
+    df: pd.DataFrame, columns: List[str], limit_direction: str = "both"
+) -> None:
+    """Interpolate dataframe columns using progressive fallbacks."""
+    if not columns:
+        return
+
+    methods = [
+        ("cubic", {"order": 3}),
+        ("quadratic", {"order": 2}),
+        ("linear", {}),
+    ]
+
+    for method, extra_args in methods:
+        try:
+            df.loc[:, columns] = df.loc[:, columns].interpolate(
+                method=method, limit_direction=limit_direction, **extra_args
+            )
+        except Exception as exc:
+            print(
+                f"Interpolation with method '{method}' failed ({exc}). "
+                "Falling back to simpler method."
+            )
+            continue
+        remaining_nan = df.loc[:, columns].isna().any().any()
+        if not remaining_nan:
+            return
+
+    # Final safety net
+    df.loc[:, columns] = (
+        df.loc[:, columns].ffill().bfill()
+    )
+
+
 def time_goal_reached(
     df: pd.DataFrame,
     goal_position: Tuple[float, float],
@@ -74,9 +108,7 @@ def combine_df_robot_agents(
         and "behavior" not in attribute
         and "frame_id" not in attribute
     ]
-    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
-        method="cubic", order=3
-    )
+    _interpolate_with_fallback(df_agents, attributes)
     df_agents.ffill(inplace=True)
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
@@ -105,9 +137,7 @@ def combine_df_robot_and_agent(
         and "behavior" not in attribute
         and "frame_id" not in attribute
     ]
-    df_interaction.loc[:, attributes] = df_interaction.loc[:, attributes].interpolate(
-        method="cubic", order=3
-    )
+    _interpolate_with_fallback(df_interaction, attributes)
     df_interaction.ffill(inplace=True)
     df_interaction.dropna(inplace=True)
     df_interaction.reset_index(drop=True, inplace=True)
@@ -139,9 +169,7 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
         and "behavior" not in attribute
     ]
     df_agents.infer_objects(copy=False)
-    df_agents.loc[:, attributes] = df_agents.loc[:, attributes].interpolate(
-        method="cubic", order=3
-    )
+    _interpolate_with_fallback(df_agents, attributes)
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
     return df_agents
@@ -176,9 +204,7 @@ def align_df_agents_on_time(df_agents_list: List[pd.DataFrame]) -> List[pd.DataF
             and "frame_id" not in attribute
         ]
 
-        agent_df.loc[:, attributes] = agent_df.loc[:, attributes].interpolate(
-            method="cubic", order=3
-        )
+        _interpolate_with_fallback(agent_df, attributes)
         # forward-fill and backward-fill missing values
         agent_df.ffill(inplace=True)
         agent_df.bfill(inplace=True)
