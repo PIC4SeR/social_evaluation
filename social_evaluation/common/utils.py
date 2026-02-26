@@ -46,9 +46,7 @@ def _interpolate_with_fallback(
             return
 
     # Final safety net
-    df.loc[:, columns] = (
-        df.loc[:, columns].ffill().bfill()
-    )
+    df.loc[:, columns] = df.loc[:, columns].ffill().bfill()
 
 
 def time_goal_reached(
@@ -85,7 +83,7 @@ def normalize_angle(angle: float) -> float:
 
 
 def combine_df_robot_agents(
-    df_robot: pd.DataFrame, df_agents_list: List[pd.DataFrame]
+    df_robot: pd.DataFrame | pd.Series, df_agents_list: List[pd.DataFrame]
 ) -> pd.DataFrame:
     """Combine the robot and agents dataframes
 

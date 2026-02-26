@@ -75,6 +75,8 @@ def plot_agent(
         angle=yaw_smooth[-1],
         alpha=alpha(i),
     )
+    ab.set_clip_on(True)
+    ab.set_clip_path(ax.patch)
     artist.append(ax.add_artist(ab))
 
     if static_image_size > 0:
@@ -98,6 +100,8 @@ def plot_agent(
                     ),
                     frameon=False,
                 )
+                ab_agent.set_clip_on(True)
+                ab_agent.set_clip_path(ax.patch)
                 artist.append(ax.add_artist(ab_agent))
 
 

@@ -13,6 +13,8 @@ from .plot_utils import (
     set_ax_limits_from_trajectories,
     find_ax_limits,
     set_ax_limits,
+    normalize_goal,
+    get_bbox_for_figure,
 )
 
 from .animate_agents import (

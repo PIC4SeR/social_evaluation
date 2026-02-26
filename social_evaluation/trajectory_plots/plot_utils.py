@@ -1,16 +1,70 @@
+from matplotlib.transforms import Bbox
 import pandas as pd
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import List, Tuple
+from typing import Any, List, Optional, Tuple
 import matplotlib.colors as mcolors
 import matplotlib.collections as mcoll
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from scipy.ndimage import rotate
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 pkg_dir = Path(__file__).resolve().parents[0]
 images_dir = Path(pkg_dir, "images")
+
+
+def get_bbox_for_figure(fig: Figure, ax: Axes) -> Bbox:
+    """
+    Get the bounding box for the figure that includes all elements of the plot.
+
+    :param fig: Figure object
+    :param ax: Axis object
+    :return: Bounding box object
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
+    # start from the axes rectangle
+    bbox = ax.get_window_extent(renderer)
+
+    # include title, labels, and ticks in the bounding box
+    extras = []
+    for t in (
+        [ax.title, ax.xaxis.label, ax.yaxis.label]
+        + ax.get_xticklabels()
+        + ax.get_yticklabels()
+    ):
+        if t.get_text():
+            extras.append(t.get_window_extent(renderer))
+
+    bbox = Bbox.union([bbox, *extras]).transformed(fig.dpi_scale_trans.inverted())
+    # add padding
+    return bbox
+
+
+def normalize_goal(goal_value: Any) -> Optional[Tuple[float, float]]:
+    """Convert supported goal specs into a numeric tuple."""
+    if goal_value is None:
+        return None
+    if isinstance(goal_value, dict):
+        if "x" in goal_value and "y" in goal_value:
+            return (float(goal_value["x"]), float(goal_value["y"]))
+        print(f"Goal dict must contain 'x' and 'y' keys. Skipping: {goal_value}")
+        return None
+    if isinstance(goal_value, (list, tuple)):
+        if len(goal_value) != 2:
+            print(
+                f"Goal list/tuple must have exactly two entries. Skipping: {goal_value}"
+            )
+            return None
+        return (float(goal_value[0]), float(goal_value[1]))
+    print(
+        f"Unsupported goal specification type {type(goal_value)}. Expected dict, list, or tuple."
+    )
+    return None
 
 
 def normalize_image(image: np.ndarray) -> np.ndarray:
@@ -30,7 +84,7 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
     return image
 
 
-def meters_to_pixels(meters: float, ax: plt.Axes) -> float:
+def meters_to_pixels(meters: float, ax: Axes) -> float:
     """
     Convert meters to pixels using the current axis limits.
 
@@ -50,7 +104,7 @@ def create_line_collection(
     velocity: np.ndarray,
     norm: mcolors.Normalize,
     cmap: str = "viridis",
-    color: str = None,
+    color: Optional[str] = None,
 ) -> mcoll.LineCollection:
     """
     Create a line collection for a trajectory.
@@ -121,7 +175,7 @@ def create_annotation_box(
 
 def plot_map(
     map: np.ndarray,
-    ax: plt.Axes,
+    ax: Axes,
     resolution: float = 0.05,
     origin: Tuple[float, float] = (-8.41, -12.7),
 ) -> None:
@@ -133,17 +187,22 @@ def plot_map(
     :param origin: Origin of the map
     """
     color_map = mcolors.ListedColormap(["white", "black"])
-    extent = [
+    extent = (
         origin[0],
         origin[0] + map.shape[1] * resolution,
         origin[1],
         origin[1] + map.shape[0] * resolution,
-    ]
+    )
     # use a resolution of 0.1 and set the origin of the map to the bottom left corner
-    ax.imshow(map, cmap=color_map, extent=extent)
+    img = ax.imshow(map, cmap=color_map, extent=extent)
+    img.set_in_layout(
+        False
+    )  # Exclude the image from the layout to prevent tight_layout issues
+    img.set_clip_on(True)
+    img.set_clip_path(ax.patch)
 
 
-def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.2) -> None:
+def plot_goal(goal: Tuple[float, float], ax: Axes, radius: float = 0.2) -> None:
     """Plot the goal position on the map
 
     :param goal: Tuple with the goal position
@@ -161,11 +220,13 @@ def plot_goal(goal: Tuple[float, float], ax: plt.Axes, radius: float = 0.2) -> N
         goal,
         frameon=False,
     )
+    ab_goal.set_clip_on(True)
+    ab_goal.set_clip_path(ax.patch)
     ax.add_artist(ab_goal)
 
 
 def plot_path(
-    df_paths: pd.DataFrame, ax: plt.Axes, color: str = "green", linewidth: float = 1
+    df_paths: pd.DataFrame, ax: Axes, color: str = "green", linewidth: float = 1
 ) -> None:
     """Plot the path of the robot on the map
 
@@ -192,7 +253,7 @@ def plot_path(
     ax.get_legend().remove()
 
 
-def retrieve_image_from_path(image_path: str) -> np.ndarray:
+def retrieve_image_from_path(image_path: str | Path) -> np.ndarray:
     """Retrieve image from path
 
     :param image_path: Path to the image
@@ -231,7 +292,7 @@ def get_images_for_experiment(
 
 def find_ax_limits(
     df_trajectories: pd.DataFrame, agent_num: int
-) -> Tuple[float, float]:
+) -> Tuple[float, float, float, float]:
     """
     Find the limits for the axis
 
@@ -254,7 +315,7 @@ def find_ax_limits(
 
 
 def set_ax_limits_from_trajectories(
-    df_trajectories_list: List[pd.DataFrame], agent_num: int, ax: plt.Axes
+    df_trajectories_list: List[pd.DataFrame], agent_num: int, ax: Axes
 ) -> None:
     """
     Set the limits for the axis from the trajectories
@@ -279,7 +340,7 @@ def set_ax_limits_from_trajectories(
         )
 
 
-def set_ax_limits(ax: plt.Axes, ax_limits: List[float]) -> None:
+def set_ax_limits(ax: Axes, ax_limits: List[float]) -> None:
     """
     Set the limits for the axis
 

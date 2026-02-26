@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
 import pandas as pd
-from pathlib import Path, PosixPath
+from pathlib import Path
 import pickle
 import os
 import numpy as np
+import matplotlib
+import subprocess
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.animation import ArtistAnimation
+from matplotlib.animation import ArtistAnimation, PillowWriter
 from typing import Dict, Any, List, Tuple, Optional
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 
 from social_evaluation.common import combine_df_robot_agents
@@ -21,13 +27,13 @@ import social_evaluation
 def plot_experiment_aggregate(
     data: dict,
     exp: List[str],
-    ax: plt.Axes,
-    fig: plt.Figure,
+    ax: Axes,
+    fig: Figure,
     time_freq: float = 0.1,
     animate: bool = True,
     colorbar: bool = False,
     use_odometry: bool = False,
-) -> ArtistAnimation:
+) -> ArtistAnimation | None:
     """Plot the experiment aggregated in a single plot
 
     :param data: Dictionary with the data
@@ -38,7 +44,7 @@ def plot_experiment_aggregate(
     :return: Animation object with the aggregated trajectories
     """
 
-    goal = data[exp[0]]["goal"]
+    goal = data[exp[0]].get("goal")
     map = data[exp[0]]["map"]
     map_metadata = data[exp[0]]["map_metadata"]
 
@@ -65,7 +71,6 @@ def plot_experiment_aggregate(
         fig=fig,
         time_freq=time_freq,
         animate=animate,
-        colorbar=colorbar,
     )
     return ani
 
@@ -73,8 +78,8 @@ def plot_experiment_aggregate(
 def plot_experiment_single(
     data: dict,
     exp: str,
-    ax: plt.Axes,
-    fig: plt.Figure,
+    ax: Axes,
+    fig: Figure,
     time_freq: float = 0.1,
     animate: bool = True,
     colorbar: bool = False,
@@ -103,7 +108,7 @@ def plot_experiment_single(
     df_obstacles = data[exp]["obstacles"]
     df_path = data[exp]["path"]
     transforms = data[exp]["transforms"]
-    goal = data[exp]["goal"]
+    goal = data[exp].get("goal")
     map = data[exp]["map"]
     map_metadata = data[exp]["map_metadata"]
 
@@ -141,8 +146,8 @@ def plot_data(
     goal: Optional[Tuple[float, float]],
     map: np.ndarray,
     map_metadata: Dict[str, Any],
-    ax: plt.Axes,
-    fig: plt.Figure,
+    ax: Axes,
+    fig: Figure,
     time_freq: float = 0.1,
     colorbar: bool = False,
     animate: bool = True,
@@ -150,7 +155,7 @@ def plot_data(
     fontsize: int = 16,
     ax_limits: Optional[List[float]] = None,
     use_odometry: bool = False,
-) -> ArtistAnimation:
+) -> ArtistAnimation | None:
     """Plot the data in a single plot
 
     :param df_odometry: Dataframe with the odometry
@@ -201,6 +206,87 @@ def plot_data(
     return ani
 
 
+def load_data_from_pickles(pickle_paths: List[Path]) -> Dict[str, Any]:
+    """Merge experiment dictionaries loaded from multiple pickle files."""
+    aggregated_data: Dict[str, Any] = {}
+    for pickle_path in pickle_paths:
+        with open(pickle_path, "rb") as f:
+            pickle_data = pickle.load(f)
+        for key, value in pickle_data.items():
+            aggregated_data[key] = value
+    return aggregated_data
+
+
+def save_animation_with_fallback(
+    animation: ArtistAnimation,
+    output_path: Path,
+    fps: int,
+    preferred_writer: Optional[str] = "pillow",
+) -> None:
+    """Save animation with the preferred writer, falling back to Pillow if necessary."""
+    if animation is None:
+        return
+    if preferred_writer:
+        try:
+            animation.save(
+                output_path,
+                writer=preferred_writer,
+                fps=fps,
+                savefig_kwargs={"transparent": True},
+            )
+            return
+        except (
+            RuntimeError,
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            ValueError,
+        ) as exc:
+            print(
+                f"Falling back to PillowWriter for {output_path} because "
+                f"'{preferred_writer}' failed: {exc}"
+            )
+    pillow_writer = PillowWriter(fps=fps)
+    animation.save(
+        output_path, writer=pillow_writer, savefig_kwargs={"transparent": True}
+    )
+
+
+def override_missing_goals_with_config(
+    data: Dict[str, Any], experiments_config: Dict[str, Any]
+) -> None:
+    """Fill missing goals in loaded data using experiment parameters."""
+    if not experiments_config:
+        return
+
+    configured_goals: Dict[str, Tuple[float, float]] = {}
+    for experiment_name, params in experiments_config.items():
+        if not isinstance(params, dict):
+            continue
+        normalized_goal = pu.normalize_goal(params.get("goal"))
+        if normalized_goal is not None:
+            configured_goals[experiment_name] = normalized_goal
+
+    if not configured_goals:
+        return
+
+    applied_overrides = set()
+    for exp_key, exp_data in data.items():
+        if exp_data.get("goal") is not None:
+            continue
+        parts = exp_key.split("/")
+        if len(parts) < 4:
+            continue
+        experiment_name = parts[-4]
+        goal_override = configured_goals.get(experiment_name)
+        if goal_override is not None:
+            exp_data["goal"] = goal_override
+            if experiment_name not in applied_overrides:
+                print(
+                    f"Using configured goal {goal_override} for experiment {experiment_name}"
+                )
+                applied_overrides.add(experiment_name)
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -217,14 +303,21 @@ def main():
         "--pickle-file",
         type=Path,
         help="Bag file path to extract data from",
-        default="None",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--pickle-base-path",
+        type=Path,
+        help="Directory containing per-experiment pickle files",
+        default=None,
     )
 
     parser.add_argument(
         "--output-dir",
         type=Path,
         help="Output directory to save the plots",
-        default="plotted_trajectories",
+        default=Path("plotted_trajectories"),
     )
 
     argcomplete.autocomplete(parser)
@@ -242,11 +335,28 @@ def main():
     save_fig = config.get("save_fig", True)
     fontsize = config.get("fontsize", 16)
     image_width_multi = config.get("image_width_multi", 1.0)
+    bbox_pad_inches = float(config.get("bbox_pad_inches", 0.05))
+    animation_writer = config.get("animation_writer", "pillow")
 
-    if args.pickle_file != PosixPath("None"):
+    pickle_base_path = args.pickle_base_path
+    config_pickle_base_path = config.get("pickle_base_path")
+    if pickle_base_path is None and config_pickle_base_path:
+        pickle_base_path = Path(config_pickle_base_path)
+
+    if args.pickle_file:
         pickle_file = Path(args.pickle_file)
-        with open(pickle_file, "rb") as f:
-            data = pickle.load(f)
+        data = load_data_from_pickles([pickle_file])
+    elif pickle_base_path:
+        pickle_base_path = Path(pickle_base_path)
+        if not pickle_base_path.exists():
+            raise FileNotFoundError(
+                f"Pickle base path {pickle_base_path} does not exist."
+            )
+        pickle_files = sorted(pickle_base_path.rglob("*.pickle"))
+        if not pickle_files:
+            raise FileNotFoundError(f"No pickle files found under {pickle_base_path}.")
+        print(f"Loading {len(pickle_files)} pickle files from {pickle_base_path}")
+        data = load_data_from_pickles(pickle_files)
     else:
         data = {}
         for exp in config["experiments"]:
@@ -256,6 +366,8 @@ def main():
                 pickle_data = pickle.load(f)
                 for key in pickle_data.keys():
                     data[key] = pickle_data[key]
+
+    override_missing_goals_with_config(data, config.get("experiments", {}))
 
     experiment_algorithm = {}
     for exp in data.keys():
@@ -284,7 +396,9 @@ def main():
                 colorbar=plot_colorbar,
                 image_width_multi=image_width_multi,
                 fontsize=fontsize,
-                ax_limits=config["experiments"][experiment_name].get("ax_limits", None),
+                ax_limits=config["experiments"]
+                .get(experiment_name, {})
+                .get("ax_limits", None),
                 use_odometry=use_odometry,
             )
 
@@ -298,20 +412,25 @@ def main():
                         f"Skipping GIF for {experiment_name}/{algorithm_name}/{exp_id}: no frames."
                     )
                 else:
-                    ani.save(
-                        args.output_dir.joinpath(
-                            experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
-                        ),
-                        writer="imagemagick",
-                        fps=1 / time_freq,
+                    output_gif = args.output_dir.joinpath(
+                        experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
+                    )
+                    save_animation_with_fallback(
+                        ani,
+                        output_gif,
+                        fps=int(1 / time_freq),
+                        preferred_writer=animation_writer,
                     )
             # save the last frame of the animation
             if save_fig:
+                output_png = args.output_dir.joinpath(
+                    experiment_name, algorithm_name, f"experiment_{exp_id}.png"
+                )
+                bbox = pu.get_bbox_for_figure(fig, ax)
                 fig.savefig(
-                    args.output_dir.joinpath(
-                        experiment_name, algorithm_name, f"experiment_{exp_id}.png"
-                    ),
-                    bbox_inches="tight",
+                    output_png,
+                    bbox_inches=bbox,
+                    pad_inches=bbox_pad_inches,
                     transparent=True,
                     format="png",
                 )
@@ -346,23 +465,31 @@ def main():
                             f"Skipping aggregated GIF for {experiment_name}/{algorithm_name}: no frames."
                         )
                     else:
-                        ani.save(
-                            args.output_dir.joinpath(
-                                experiment_name,
-                                algorithm_name,
-                                f"aggregated_trajectories.gif",
-                            ),
-                            writer="imagemagick",
-                            fps=10,
+                        aggregated_gif = args.output_dir.joinpath(
+                            experiment_name,
+                            algorithm_name,
+                            f"aggregated_trajectories.gif",
+                        )
+                        save_animation_with_fallback(
+                            ani,
+                            aggregated_gif,
+                            fps=int(1 / time_freq),
+                            preferred_writer=animation_writer,
                         )
                 # save the last frame of the animation
                 if save_fig:
+                    aggregated_png = args.output_dir.joinpath(
+                        experiment_name,
+                        algorithm_name,
+                        f"aggregated_trajectories.png",
+                    )
+                    bbox = pu.get_bbox_for_figure(fig, ax)
                     fig.savefig(
-                        args.output_dir.joinpath(
-                            experiment_name,
-                            algorithm_name,
-                            f"aggregated_trajectories.png",
-                        )
+                        aggregated_png,
+                        bbox_inches=bbox,
+                        pad_inches=bbox_pad_inches,
+                        transparent=True,
+                        format="png",
                     )
                 plt.close()
                 ax.clear()
