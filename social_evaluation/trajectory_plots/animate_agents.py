@@ -10,6 +10,9 @@ from scipy.ndimage import gaussian_filter1d
 
 from tqdm import trange
 import social_evaluation.trajectory_plots as pu
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.artist import Artist
 
 
 def smooth_angle_series(values: np.ndarray, sigma: float = 2) -> np.ndarray:
@@ -22,16 +25,16 @@ def smooth_angle_series(values: np.ndarray, sigma: float = 2) -> np.ndarray:
 
 
 def plot_agent(
-    ax: plt.Axes,
+    ax: Axes,
     df_trajectories: pd.DataFrame,
     i: int,
-    artist: List,
+    artist: List[Artist],
     norm: mcolors.Normalize,
     image_agent: np.ndarray,
     static_image_size: int = 5,
     desired_width: float = 0.3,
-    color: Optional[str] = None,
     image_width_multi: float = 1.0,
+    cmap: mcolors.Colormap = plt.cm.Blues,
 ) -> None:
     """Plot the agent in the trajectory plot
 
@@ -39,11 +42,10 @@ def plot_agent(
     :param df_trajectories: Dataframe with the trajectories
     :param i: Index of the trajectory
     :param artist: List of artists
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     :param image_agent: Image for the agent
     :param static_image_size: Number of static images to plot
     :param desired_width: Desired width of the agent in meters
-    :param color: Whether to plot the colorbar or not
     :param image_width_multi: Multiplier for the image width
     """
     x = np.array(df_trajectories["position_x"].iloc[: i + 1])
@@ -56,14 +58,14 @@ def plot_agent(
 
     desired_width_px = pu.meters_to_pixels(desired_width, ax) * image_width_multi
 
+    elapsed_time = pu.extract_elapsed_time_seconds(df_trajectories, i)
     # Plot the line collection for the agent
     lc_agent = pu.create_line_collection(
-        x_smooth, y_smooth, df_trajectories["velocity"].iloc[: i + 1], norm, color=color
+        x_smooth, y_smooth, elapsed_time, norm, cmap=cmap
     )
     artist.append(ax.add_collection(lc_agent))
 
     alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1)
-    lc_agent.set_alpha(alpha(i))
     lc_agent.set_linewidth(3)
 
     # Add the agent image with rotation
@@ -106,17 +108,17 @@ def plot_agent(
 
 
 def plot_agents(
-    ax: plt.Axes,
+    ax: Axes,
     df_trajectories: pd.DataFrame,
     i: int,
-    artist: List[plt.Artist],
+    artist: List[Artist],
     agent_num: int,
     norm: mcolors.Normalize,
     image_agents_walk: List[np.ndarray],
     static_image_size: int = 5,
     desired_width: float = 0.3,
-    color: Optional[str] = None,
     image_width_multi: float = 1.0,
+    cmap: mcolors.Colormap = plt.cm.Blues,
 ) -> None:
     """Plot the agents in the trajectory plot
 
@@ -125,46 +127,40 @@ def plot_agents(
     :param i: Index of the trajectory
     :param artist: List of artists
     :param agent_num: Number of agents
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     :param image_agents_walk: List of images for the agents
     :param static_image_size: Number of static images to plot
     :param desired_width: Desired width of the agent
-    :param color: Whether to plot the colorbar or not
     :param image_width_multi: Multiplier for the image width
     """
     for j in range(agent_num):
+        agent_column_map = {
+            f"position_x_agent{j}": "position_x",
+            f"position_y_agent{j}": "position_y",
+            f"velocity_agent{j}": "velocity",
+            f"yaw_agent{j}": "yaw",
+        }
+        agent_df = df_trajectories.reindex(columns=agent_column_map.keys()).rename(
+            columns=agent_column_map
+        )
         plot_agent(
             ax,
-            df_trajectories[
-                [
-                    f"position_x_agent{j}",
-                    f"position_y_agent{j}",
-                    f"velocity_agent{j}",
-                    f"yaw_agent{j}",
-                ]
-            ].rename(
-                columns={
-                    f"position_x_agent{j}": "position_x",
-                    f"position_y_agent{j}": "position_y",
-                    f"velocity_agent{j}": "velocity",
-                    f"yaw_agent{j}": "yaw",
-                }
-            ),
+            agent_df,
             i,
             artist,
             norm,
             image_agents_walk[j],
             static_image_size,
             desired_width=desired_width,
-            color=color,
             image_width_multi=image_width_multi,
+            cmap=cmap,
         )
 
 
 def animate_trajectories(
     df_trajectories: pd.DataFrame,
-    fig: plt.Figure,
-    ax: plt.Axes,
+    fig: Figure,
+    ax: Axes,
     agent_num: int,
     norm: mcolors.Normalize,
     image_robot: np.ndarray,
@@ -181,7 +177,7 @@ def animate_trajectories(
     :param fig: Matplotlib figure
     :param ax: Matplotlib axis
     :param agent_num: Number of agents
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     :param image_robot: Image for the robot
     :param image_agents_walk: List of images for the agents
     :param static_image_size: Number of static images to plot
@@ -245,14 +241,14 @@ def animate_trajectories(
 
     if colorbar and artists:
         cb = plt.colorbar(artists[-1][0], ax=ax)
-        cb.ax.set_ylabel("Velocity [m/s]")
+        cb.ax.set_ylabel(r"$\mathrm{ Time\ [s]}$")
     return ani
 
 
 def plot_trajectory_frame(
     df_trajectories: pd.DataFrame,
     index: int,
-    ax: plt.Axes,
+    ax: Axes,
     agent_num: int,
     norm: mcolors.Normalize,
     image_robot: np.ndarray,
@@ -260,13 +256,13 @@ def plot_trajectory_frame(
     static_image_size: int = 3,
     colorbar: bool = False,
     image_width_multi: float = 1.0,
-) -> List[plt.Artist]:
+) -> List[Artist]:
     """Plot the trajectory frame at a specific index
     :param df_trajectories: Dataframe with the trajectories
     :param index: Index of the trajectory to plot
     :param ax: Matplotlib axis
     :param agent_num: Number of agents
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     :param image_robot: Image for the robot
     :param image_agents_walk: List of images for the agents
     :param static_image_size: Number of static images to plot
@@ -276,17 +272,18 @@ def plot_trajectory_frame(
     :return: List of artists for the trajectory frame
     """
     artist = []
+    robot_columns = ["position_x", "position_y", "velocity", "yaw"]
     plot_agent(
         ax,
-        df_trajectories[["position_x", "position_y", "velocity", "yaw"]],
+        df_trajectories.reindex(columns=robot_columns),
         index,
         artist,
         norm,
         image_robot,
         static_image_size,
         desired_width=0.15,
-        color="red" if not colorbar else None,
         image_width_multi=image_width_multi,
+        cmap=plt.cm.Reds,
     )
     plot_agents(
         ax,
@@ -298,7 +295,6 @@ def plot_trajectory_frame(
         image_agents_walk,
         static_image_size,
         desired_width=0.13,
-        color="blue" if not colorbar else None,
         image_width_multi=image_width_multi,
     )
 
@@ -307,11 +303,11 @@ def plot_trajectory_frame(
 
 def plot_trajectories(
     df_trajectories: pd.DataFrame,
-    ax: plt.Axes,
+    ax: Axes,
     time_freq: float = 0.1,
     time_start: float = -np.inf,
     time_end: float = np.inf,
-    fig: plt.Figure = None,
+    fig: Figure = Figure(),
     colorbar: bool = False,
     animate: bool = True,
     image_width_multi: float = 1.0,
@@ -339,7 +335,7 @@ def plot_trajectories(
 
     # agents
     agent_num = df_trajectories.keys().str.contains("position_x_agent").sum()
-    norm = pu.find_norm_for_velocity([df_trajectories], agent_num)
+    norm = pu.find_norm_for_time([df_trajectories], agent_num)
 
     image_robot, image_agents_walk, image_agents_stand = pu.get_images_for_experiment(
         agent_num
@@ -368,11 +364,11 @@ def plot_trajectories(
 
 def plot_trajectories_aggregated(
     df_trajectories_list: List[pd.DataFrame],
-    ax: plt.Axes,
+    ax: Axes,
     time_freq: float = 0.1,
     time_start: float = -np.inf,
     time_end: float = np.inf,
-    fig: plt.Figure = None,
+    fig: Figure = Figure(),
     animate: bool = True,
 ):
     """Plot the trajectories of the agents aggregated
@@ -386,7 +382,7 @@ def plot_trajectories_aggregated(
 
     agent_num = df_trajectories_list[0].keys().str.contains("position_x_agent").sum()
     pu.set_ax_limits_from_trajectories(df_trajectories_list, agent_num, ax)
-    norm = pu.find_norm_for_velocity(df_trajectories_list, agent_num)
+    norm = pu.find_norm_for_time(df_trajectories_list, agent_num)
 
     ani = animate_trajectories_aggregated(
         df_trajectories_list,
@@ -403,8 +399,8 @@ def plot_trajectories_aggregated(
 
 def animate_trajectories_aggregated(
     df_trajectories_list: List[pd.DataFrame],
-    fig: plt.Figure,
-    ax: plt.Axes,
+    fig: Figure,
+    ax: Axes,
     agent_num: int,
     norm: mcolors.Normalize,
     time_freq: float = 0.1,
@@ -417,7 +413,7 @@ def animate_trajectories_aggregated(
     :param fig: Matplotlib figure
     :param ax: Matplotlib axis
     :param agent_num: Number of agents
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     :param time_freq: Frequency of the time to plot
     :return: Matplotlib animation object
     """
@@ -468,15 +464,15 @@ def animate_trajectories_aggregated(
     ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
     if artists:
         cb = plt.colorbar(artists[-1][0], ax=ax)
-        cb.ax.set_ylabel("Time [s]")
+        cb.ax.set_ylabel(r"$\mathrm{Time\ [s]}$")
     return ani
 
 
 def plot_robot_aggregated(
-    ax: plt.Axes,
+    ax: Axes,
     df_trajectories_list: List[pd.DataFrame],
     i: int,
-    artist: List,
+    artist: List[Artist],
     norm: mcolors.Normalize,
 ) -> None:
     """
@@ -486,7 +482,7 @@ def plot_robot_aggregated(
     :param df_trajectories_list: List of dataframes with the trajectories
     :param i: Index of the trajectory
     :param artist: List of artists
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     """
     for df_trajectories in df_trajectories_list:
 
@@ -507,10 +503,10 @@ def plot_robot_aggregated(
 
 
 def plot_agents_aggregated(
-    ax: plt.Axes,
+    ax: Axes,
     df_trajectories_list: List[pd.DataFrame],
     i: int,
-    artist: list,
+    artist: List[Artist],
     agent_num: int,
     norm: mcolors.Normalize,
 ) -> None:
@@ -522,7 +518,7 @@ def plot_agents_aggregated(
     :param i: Index of the trajectory
     :param artist: List of artists
     :param agent_num: Number of agents
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     """
 
     df_trajectories_list_rn = []
@@ -555,10 +551,10 @@ def plot_agents_aggregated(
 
 
 def plot_agent_aggregated(
-    ax: plt.Axes,
+    ax: Axes,
     df_trajectories_list: List[pd.DataFrame],
     i: int,
-    artist: List,
+    artist: List[Artist],
     norm: mcolors.Normalize,
 ) -> None:
     """
@@ -568,7 +564,7 @@ def plot_agent_aggregated(
     :param df_trajectories_list: List of dataframes with the trajectories
     :param i: Index of the trajectory
     :param artist: List of artists
-    :param norm: Normalize object for the velocity
+    :param norm: Normalize object for the trajectory time
     """
 
     trajectories_x = []
@@ -607,6 +603,6 @@ def plot_agent_aggregated(
         lc_agent.set_array(time_steps_from_start)
         lc_agent.set_alpha(alphas)
         lc_agent.set_linewidth(10)
-        lc_agent.set_capstyle = "round"
+        # lc_agent.set_capstyle = "round"
         lc_agent.set_linestyle((0, (1, 10)))
         artist.append(ax.add_collection(lc_agent))

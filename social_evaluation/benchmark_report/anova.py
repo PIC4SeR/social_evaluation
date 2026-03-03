@@ -109,9 +109,10 @@ class AnovaMixin:
     ) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
         """Return per-algorithm samples for ``metric_key``."""
 
-        if metric_key not in self.success_results:
+        source = self.results_for_metric(metric_key)
+        if metric_key not in source:
             return pd.DataFrame(), {}
-        subset = self.success_results[["algorithm", metric_key]].dropna()
+        subset = source[["algorithm", metric_key]].dropna()
         if subset.empty:
             return pd.DataFrame(), {}
         subset = subset.copy()

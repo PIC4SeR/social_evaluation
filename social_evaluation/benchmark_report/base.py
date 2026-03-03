@@ -25,21 +25,41 @@ from .rliable import RliableMixin
 from .tables import TableExportMixin
 
 
-class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMixin):
-    sns.set_context("paper")
+def _apply_benchmark_report_rcparams() -> None:
+    """Enforce consistent LaTeX styling for benchmark figures/tables."""
     plt.rcParams.update({"font.size": 20})
     plt.rcParams["text.usetex"] = True
     plt.rcParams["font.family"] = "serif"
     plt.rcParams["font.serif"] = ["Times New Roman"]
     plt.rcParams["font.weight"] = "bold"
+
+
+class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMixin):
+    sns.set_context("paper")
+    _apply_benchmark_report_rcparams()
     """Encapsulate data loading, formatting, and shared helpers."""
 
     results = ["success", "timeout", "collision", "navigation_failure"]
 
     def __init__(self, config: BenchmarkConfig):
         self.config = config
+        _apply_benchmark_report_rcparams()
         plt.rcParams["text.usetex"] = self.config.use_tex
-        self.ordered_experiments = list(config.episode_names.values())
+        # Use display_episodes when explicitly provided (non-empty).  An empty
+        # list means "show no individual episodes" (groups-only mode).
+        display_keys = (
+            config.display_episodes if config.display_episodes else config.episodes
+        )
+        # When only episode_groups are configured (no explicit episodes list),
+        # skip individual episode rows so that only group aggregations appear.
+        if not config.display_episodes and config.episode_groups:
+            display_keys = []
+        self.ordered_experiments = [
+            config.episode_names[key]
+            for key in display_keys
+            if key in config.episode_names
+        ]
+        self.ordered_episode_groups = list(config.episode_groups.keys())
         self.ordered_navigators = [
             config.navigator_names.get(navigator, navigator)
             for navigator in config.navigators
@@ -47,7 +67,13 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
         self._category_cmap_name = "Paired"
         self.metrics_results = self._load_metrics()
         self.metrics_results_parsed = parse_experiment_result(self.metrics_results)
-        self.success_results = filter_metrics_for_success(self.metrics_results)
+        if self.config.discard_failed_metrics:
+            self.success_results = filter_metrics_for_success(self.metrics_results)
+        else:
+            self.success_results = self.metrics_results.copy()
+        # Pre-compute per-metric result sets when overrides exist
+        self._success_only = filter_metrics_for_success(self.metrics_results)
+        self._all_results = self.metrics_results
         available = self.metrics_results["algorithm"].unique()
         self.available_navigators = [
             navigator for navigator in self.ordered_navigators if navigator in available
@@ -57,6 +83,20 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+    def results_for_metric(self, metric_key: str) -> pd.DataFrame:
+        """Return the appropriate results DataFrame for *metric_key*.
+
+        When a per-metric ``discard_failed`` override is set in the
+        config it takes priority; otherwise the global
+        ``discard_failed_metrics`` flag is used.
+        """
+        overrides = self.config.metric_discard_failed
+        if metric_key in overrides:
+            discard = overrides[metric_key]
+        else:
+            discard = self.config.discard_failed_metrics
+        return self._success_only if discard else self._all_results
+
     def _load_metrics(self) -> pd.DataFrame:
         metrics_results = load_metrics_from_dir(
             str(self.config.root_dir), recursive=True
@@ -194,13 +234,35 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
         return {label: cmap(i) for i, label in enumerate(self.ordered_navigators)}
 
     def get_result_palette(self) -> Dict[str, Tuple[float, float, float, float]]:
-        cmap = plt.cm.get_cmap(self._category_cmap_name, len(self.results))
+        cmap = plt.cm.get_cmap(self.config.quality_result_cmap)
         return {result: cmap(idx) for idx, result in enumerate(self.results)}
 
     def get_intrusion_palette(self) -> Dict[str, Tuple[float, float, float, float]]:
         intrusion_labels = list(self.config.intrusion_labels.values())
-        cmap = plt.cm.get_cmap(self._category_cmap_name, len(intrusion_labels))
+        cmap = plt.cm.get_cmap(self.config.quality_result_cmap)
         return {label: cmap(idx) for idx, label in enumerate(intrusion_labels)}
+
+    def _experiment_order_with_groups(
+        self, available: Optional[Iterable[str]] = None
+    ) -> List[str]:
+        """Return experiments followed by configured episode groups."""
+
+        available_set = set(available) if available is not None else None
+        ordered: List[str] = []
+
+        def _extend(items: Iterable[str]) -> None:
+            for item in items:
+                if not item:
+                    continue
+                if available_set is not None and item not in available_set:
+                    continue
+                if item not in ordered:
+                    ordered.append(item)
+
+        _extend(self.ordered_experiments)
+        if self.ordered_episode_groups:
+            _extend(self.ordered_episode_groups)
+        return ordered
 
     # ------------------------------------------------------------------
     # Data summaries
@@ -208,11 +270,30 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
     @property
     def success_rate(self) -> pd.DataFrame:
         if not hasattr(self, "_success_rate"):
-            sr = (
+            base_sr = (
                 self.metrics_results.groupby(["experiment", "algorithm"])["result"]
                 .apply(lambda values: (values == "Success").mean() * 100)
                 .reset_index()
             )
+            sr_frames = [base_sr]
+            if self.config.episode_groups:
+                group_frames = []
+                for group_name, members in self.config.episode_groups.items():
+                    subset = self.metrics_results[
+                        self.metrics_results["experiment"].isin(members)
+                    ]
+                    if subset.empty:
+                        continue
+                    group_sr = (
+                        subset.groupby(["algorithm"])["result"]
+                        .apply(lambda values: (values == "Success").mean() * 100)
+                        .reset_index()
+                    )
+                    group_sr["experiment"] = group_name
+                    group_frames.append(group_sr)
+                if group_frames:
+                    sr_frames.append(pd.concat(group_frames, ignore_index=True))
+            sr = pd.concat(sr_frames, ignore_index=True)
             sr = sr.rename(
                 columns={
                     "experiment": r"\textbf{Experiment}",
@@ -221,7 +302,10 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
                 }
             )
             sr = sr.set_index([r"\textbf{Experiment}", r"\textbf{Navigator}"])
-            sr = sr.reindex(self.ordered_experiments, level=r"\textbf{Experiment}")
+            experiment_order = self._experiment_order_with_groups(
+                sr.index.get_level_values(r"\textbf{Experiment}").unique()
+            )
+            sr = sr.reindex(experiment_order, level=r"\textbf{Experiment}")
             sr = sr.reindex(self.ordered_navigators, level=r"\textbf{Navigator}")
             sr[r"\textbf{Success Rate (\%)} $\mathbf{\uparrow}$"] = (
                 sr[r"\textbf{Success Rate (\%)} $\mathbf{\uparrow}$"]

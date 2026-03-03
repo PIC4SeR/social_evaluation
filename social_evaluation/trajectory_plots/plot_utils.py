@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 import matplotlib.colors as mcolors
 import matplotlib.collections as mcoll
 from matplotlib.axes import Axes
@@ -14,6 +14,15 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 pkg_dir = Path(__file__).resolve().parents[0]
 images_dir = Path(pkg_dir, "images")
+
+
+def apply_trajectory_plot_rcparams() -> None:
+    """Use LaTeX serif styling for trajectory plots."""
+    plt.rcParams.update({"font.size": 20})
+    plt.rcParams["text.usetex"] = True
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = ["Times New Roman"]
+    plt.rcParams["font.weight"] = "bold"
 
 
 def get_bbox_for_figure(fig: Figure, ax: Axes) -> Bbox:
@@ -43,6 +52,40 @@ def get_bbox_for_figure(fig: Figure, ax: Axes) -> Bbox:
     bbox = Bbox.union([bbox, *extras]).transformed(fig.dpi_scale_trans.inverted())
     # add padding
     return bbox
+
+
+def extract_elapsed_time_seconds(df: pd.DataFrame, i: int) -> np.ndarray:
+    """Return elapsed time in seconds for samples up to index *i*."""
+    time_source = df.index[: i + 1]
+
+    raw_values = time_source.to_numpy()
+
+    if raw_values.size == 0:
+        return np.array([], dtype=float)
+
+    dtype = raw_values.dtype
+
+    if dtype == object:
+        try:
+            datetime_values = pd.to_datetime(raw_values)
+            raw_values = datetime_values.to_numpy()
+            dtype = raw_values.dtype
+        except (ValueError, TypeError):
+            numeric_values = pd.to_numeric(raw_values, errors="coerce")
+            if np.isnan(numeric_values).all():
+                return np.linspace(0, raw_values.size - 1, raw_values.size)
+            raw_values = numeric_values.to_numpy()
+            dtype = raw_values.dtype
+
+    if np.issubdtype(dtype, np.datetime64):
+        deltas = raw_values - raw_values[0]
+        return (deltas / np.timedelta64(1, "s")).astype(float)
+
+    if np.issubdtype(dtype, np.timedelta64):
+        return (raw_values / np.timedelta64(1, "s")).astype(float)
+
+    numeric_values = raw_values.astype(float, copy=False)
+    return numeric_values - numeric_values[0]
 
 
 def normalize_goal(goal_value: Any) -> Optional[Tuple[float, float]]:
@@ -103,7 +146,7 @@ def create_line_collection(
     y: np.ndarray,
     velocity: np.ndarray,
     norm: mcolors.Normalize,
-    cmap: str = "viridis",
+    cmap: Optional[mcolors.Colormap] = None,
     color: Optional[str] = None,
 ) -> mcoll.LineCollection:
     """
@@ -397,3 +440,74 @@ def find_norm_for_velocity(
         min_velocity = min(min_velocity, min_velocity_)
         max_velocity = max(max_velocity, max_velocity_)
     return mcolors.Normalize(vmin=min_velocity, vmax=max_velocity)
+
+
+def _duration_seconds_from_source(
+    source: Union[pd.Series, pd.Index, np.ndarray],
+) -> Optional[float]:
+    """Compute span in seconds represented by a time-like source."""
+    if isinstance(source, pd.Index):
+        values = source.to_series(index=None)
+    elif isinstance(source, pd.Series):
+        values = source.copy()
+    else:
+        values = pd.Series(source)
+
+    values = values.dropna()
+    if values.empty:
+        return None
+
+    dtype = values.dtype
+
+    if np.issubdtype(dtype, np.datetime64):
+        diff = values.max() - values.min()
+        return float(diff.total_seconds())
+
+    if np.issubdtype(dtype, np.timedelta64):
+        diff = values.max() - values.min()
+        return float(diff.total_seconds())
+
+    if np.issubdtype(dtype, np.number):
+        return float(values.max() - values.min())
+
+    datetime_values = pd.to_datetime(values, errors="coerce")
+    datetime_values = datetime_values.dropna()
+    if not datetime_values.empty:
+        diff = datetime_values.max() - datetime_values.min()
+        return float(diff.total_seconds())
+
+    numeric_values = pd.to_numeric(values, errors="coerce")
+    numeric_values = numeric_values.dropna()
+    if not numeric_values.empty:
+        return float(numeric_values.max() - numeric_values.min())
+
+    return None
+
+
+def find_norm_for_time(
+    df_trajectories_list: List[pd.DataFrame], agent_num: int
+) -> mcolors.Normalize:
+    """Find the norm for the time
+
+    :param df_trajectories: Dataframe with the trajectories
+    :param agent_num: Number of agents
+    :return: Normalize object for the time
+    """
+    max_duration = 0.0
+    for df_trajectories in df_trajectories_list:
+        if "time" in df_trajectories.columns:
+            time_source = df_trajectories["time"]
+        elif isinstance(df_trajectories.index, pd.Index):
+            time_source = df_trajectories.index
+        else:
+            continue
+
+        duration = _duration_seconds_from_source(time_source)
+        if duration is None:
+            continue
+        max_duration = max(max_duration, duration)
+
+    if not np.isfinite(max_duration) or max_duration <= 0:
+        max_duration = 1.0
+
+    return mcolors.Normalize(vmin=0.0, vmax=max_duration)

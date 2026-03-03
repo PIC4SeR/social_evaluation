@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Union
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 
@@ -175,7 +176,9 @@ def style_report_latex(
             return None
         return std_dev_df
 
-    def _format_plain_cell(value: Any, std_value: Any, *, bold: bool) -> str:
+    def _format_plain_cell(
+        value: Any, std_value: Any, *, bold: bool, underline: bool
+    ) -> str:
         try:
             value_float = float(value)
         except (TypeError, ValueError):
@@ -191,29 +194,38 @@ def style_report_latex(
                 std_float = float("nan")
             if not math.isnan(std_float) and std_float != 0:
                 std_text = rf" \pm {std_float:.2f}"
-            if bold:
-                std_text = rf"\mathbf{{{std_text}}}"
+        value_text = rf"{value_text}{std_text if std_text else ''}"
         if bold:
             value_text = rf"\mathbf{{{value_text}}}"
-        if not std_text:
-            return rf"${value_text}$"
-        return rf"${value_text}{std_text}$"
+        if underline:
+            value_text = rf"\underline{{{value_text}}}"
+        return rf"${value_text}$"
 
     if not cmap_name:
         for col in mean_df.columns:
             direction = _resolve_direction(col)
             numeric_series = pd.to_numeric(mean_df[col], errors="coerce")
             highlight_rows = set()
+            underline_rows = set()
             if not numeric_series.dropna().empty:
                 if direction == "DOWN":
                     best_value = numeric_series.min()
+                    second_best_value = numeric_series[
+                        numeric_series != best_value
+                    ].min()
+
                 else:
                     best_value = numeric_series.max()
+                    second_best_value = numeric_series[
+                        numeric_series != best_value
+                    ].max()
                 try:
                     best_float = float(best_value)
+                    second_best_float = float(second_best_value)
                 except (TypeError, ValueError):
                     best_float = float("nan")
-                if not math.isnan(best_float):
+                    second_best_float = float("nan")
+                if not math.isnan(best_float) and not math.isnan(second_best_float):
                     for row, candidate in numeric_series.items():
                         if pd.isna(candidate):
                             continue
@@ -224,11 +236,19 @@ def style_report_latex(
                             abs_tol=1e-12,
                         ):
                             highlight_rows.add(row)
+                        elif math.isclose(
+                            float(candidate),
+                            second_best_float,
+                            rel_tol=1e-9,
+                            abs_tol=1e-12,
+                        ):
+                            underline_rows.add(row)
             for row in mean_df.index:
                 std_cell = _get_std_cell(row, col)
                 bold = row in highlight_rows
+                underline = row in underline_rows
                 styled_df.loc[row, col] = _format_plain_cell(
-                    mean_df.loc[row, col], std_cell, bold=bold
+                    mean_df.loc[row, col], std_cell, bold=bold, underline=underline
                 )
         return styled_df
 
@@ -367,11 +387,37 @@ def load_metrics_from_dir(
     return all_metrics
 
 
-def get_mean_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+def _prepare_numeric_metric_columns(
+    metrics: pd.DataFrame, req_columns: List[str]
+) -> Tuple[pd.DataFrame, List[str]]:
+    """Return a DataFrame copy (if needed) and numeric metric columns ready for aggregation."""
+    value_columns: List[str] = []
+    mutated = False
+    for col in metrics.columns:
+        if col in req_columns:
+            continue
+        series = metrics[col]
+        if pd.api.types.is_numeric_dtype(series):
+            value_columns.append(col)
+            continue
+        coerced = pd.to_numeric(series, errors="coerce")
+        if coerced.notna().any():
+            if not mutated:
+                metrics = metrics.copy()
+                mutated = True
+            metrics[col] = coerced
+            value_columns.append(col)
+    return metrics, value_columns
+
+
+def get_mean_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]]
+) -> pd.DataFrame:
     """Calculate the mean of metrics grouped by experiment and algorithm.
 
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
+        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
     Returns:
         pd.DataFrame: DataFrame containing the mean metrics grouped by experiment and algorithm.
     """
@@ -380,19 +426,27 @@ def get_mean_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         req_columns.append("result")
     if not isinstance(metrics, pd.DataFrame):
         raise ValueError("Input must be a pandas DataFrame.")
+    if experiments is not None:
+        metrics = metrics[metrics["experiment"].isin(experiments)]
+    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
+    if not value_columns:
+        raise ValueError("No numeric metric columns available for aggregation.")
     return metrics.pivot_table(
         index=["experiment", "algorithm"],
-        values=[col for col in metrics.columns if col not in req_columns],
+        values=value_columns,
         dropna=False,
         aggfunc="mean",
     ).reset_index()
 
 
-def get_std_dev_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+def get_std_dev_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]]
+) -> pd.DataFrame:
     """Calculate the standard deviation of metrics grouped by experiment and algorithm.
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
-        Returns:
+        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
+    Returns:
         pd.DataFrame: DataFrame containing the standard deviation of metrics grouped by experiment and algorithm.
     """
     req_columns = ["experiment", "algorithm", "run"]
@@ -400,19 +454,27 @@ def get_std_dev_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         req_columns.append("result")
     if not isinstance(metrics, pd.DataFrame):
         raise ValueError("Input must be a pandas DataFrame.")
+    if experiments is not None:
+        metrics = metrics[metrics["experiment"].isin(experiments)]
+    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
+    if not value_columns:
+        raise ValueError("No numeric metric columns available for aggregation.")
     return metrics.pivot_table(
         index=["experiment", "algorithm"],
-        values=[col for col in metrics.columns if col not in req_columns],
+        values=value_columns,
         dropna=False,
         aggfunc="std",
     ).reset_index()
 
 
-def get_median_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+def get_median_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]]
+) -> pd.DataFrame:
     """Calculate the median of metrics grouped by experiment and algorithm.
 
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
+        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
     Returns:
         pd.DataFrame: DataFrame containing the median metrics grouped by experiment and algorithm.
     """
@@ -421,19 +483,27 @@ def get_median_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         req_columns.append("result")
     if not isinstance(metrics, pd.DataFrame):
         raise ValueError("Input must be a pandas DataFrame.")
+    if experiments is not None:
+        metrics = metrics[metrics["experiment"].isin(experiments)]
+    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
+    if not value_columns:
+        raise ValueError("No numeric metric columns available for aggregation.")
     return metrics.pivot_table(
         index=["experiment", "algorithm"],
-        values=[col for col in metrics.columns if col not in req_columns],
+        values=value_columns,
         dropna=False,
         aggfunc="median",
     ).reset_index()
 
 
-def get_max_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+def get_max_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]]
+) -> pd.DataFrame:
     """Calculate the maximum of metrics grouped by experiment and algorithm.
 
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
+        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
     Returns:
         pd.DataFrame: DataFrame containing the maximum metrics grouped by experiment and algorithm.
     """
@@ -442,19 +512,27 @@ def get_max_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         req_columns.append("result")
     if not isinstance(metrics, pd.DataFrame):
         raise ValueError("Input must be a pandas DataFrame.")
+    if experiments is not None:
+        metrics = metrics[metrics["experiment"].isin(experiments)]
+    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
+    if not value_columns:
+        raise ValueError("No numeric metric columns available for aggregation.")
     return metrics.pivot_table(
         index=["experiment", "algorithm"],
-        values=[col for col in metrics.columns if col not in req_columns],
+        values=value_columns,
         dropna=False,
         aggfunc="max",
     ).reset_index()
 
 
-def get_min_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+def get_min_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]]
+) -> pd.DataFrame:
     """Calculate the minimum of metrics grouped by experiment and algorithm.
 
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
+        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
     Returns:
         pd.DataFrame: DataFrame containing the minimum metrics grouped by experiment and algorithm.
     """
@@ -463,33 +541,182 @@ def get_min_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         req_columns.append("result")
     if not isinstance(metrics, pd.DataFrame):
         raise ValueError("Input must be a pandas DataFrame.")
+    if experiments is not None:
+        metrics = metrics[metrics["experiment"].isin(experiments)]
+    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
+    if not value_columns:
+        raise ValueError("No numeric metric columns available for aggregation.")
     return metrics.pivot_table(
         index=["experiment", "algorithm"],
-        values=[col for col in metrics.columns if col not in req_columns],
+        values=value_columns,
         dropna=False,
         aggfunc="min",
     ).reset_index()
 
 
+def get_group_mean_metrics(
+    metrics: pd.DataFrame,
+    episode_groups: Mapping[str, Union[str, List[str], Tuple[str, ...]]],
+) -> pd.DataFrame:
+    """Calculate mean metrics aggregated over user-defined episode groups as the mean of the means.
+
+    Args:
+        metrics (pd.DataFrame): DataFrame containing the metrics.
+        episode_groups (Mapping[str, Union[str, List[str], Tuple[str, ...]]]): Mapping of group names to experiment names (each definition can be a string or an iterable of strings).
+    Returns:
+        pd.DataFrame: DataFrame containing the mean metrics grouped by episode_group and algorithm.
+    """
+
+    # first get the mean metrics by experiment and algorithm
+    mean_metrics = get_mean_metrics(metrics, experiments=None)
+
+    # for each group we create a new row in the output dataframe with the mean of the means of the experiments in that group
+    group_means = []
+    for group_name, experiment_names in episode_groups.items():
+        if isinstance(experiment_names, str):
+            experiment_names = [experiment_names]
+        group_mean = (
+            mean_metrics[mean_metrics["experiment"].isin(experiment_names)]
+            .groupby("algorithm")
+            .mean(numeric_only=True)
+            .reset_index()
+        )
+        group_mean["experiment"] = group_name
+        group_means.append(group_mean)
+    return pd.concat(group_means, ignore_index=True)
+
+
+def get_group_std_dev_metrics(
+    metrics: pd.DataFrame,
+    episode_groups: Mapping[str, Union[str, List[str], Tuple[str, ...]]],
+) -> pd.DataFrame:
+    """Calculate the standard deviation aggregated over episode groups.
+    Args:
+        metrics (pd.DataFrame): DataFrame containing the metrics.
+        episode_groups (Mapping[str, Union[str, List[str], Tuple[str, ...]]]): Mapping of group names to experiment names (each definition can be a string or an iterable of strings).
+    Returns:
+        pd.DataFrame: DataFrame containing the mean metrics grouped by episode_group and algorithm.
+    """
+
+    # compute the mean metrics by experiment and algorithm
+    mean_metrics = get_mean_metrics(metrics, experiments=None)
+    # compute the std deviation metrics by experiment and algorithm
+    std_dev_metrics = get_std_dev_metrics(metrics, experiments=None)
+
+    # for each group we create a new row in the output dataframe with
+    # the mean of the std deviations of the experiments in that group (std deviation within the group)
+    # plus the std deviation of the means of the experiments in that group (std deviation between experiments in the group)
+
+    group_std_devs = []
+    for group_name, experiment_names in episode_groups.items():
+        if isinstance(experiment_names, str):
+            experiment_names = [experiment_names]
+        group_std_dev_within = (
+            std_dev_metrics[std_dev_metrics["experiment"].isin(experiment_names)]
+            .groupby("algorithm")
+            .mean(numeric_only=True)
+            .reset_index()
+        )
+        group_std_dev_between = (
+            mean_metrics[mean_metrics["experiment"].isin(experiment_names)]
+            .groupby("algorithm")
+            .std(numeric_only=True)
+            .reset_index()
+        )
+        group_std_dev = group_std_dev_within.copy()
+        for col in group_std_dev.columns:
+            if col not in ["algorithm", "experiment"]:
+                group_std_dev[col] = np.sqrt(
+                    group_std_dev_within[col] ** 2 + group_std_dev_between[col] ** 2
+                )
+        group_std_dev["experiment"] = group_name
+        group_std_devs.append(group_std_dev)
+    return pd.concat(group_std_devs, ignore_index=True)
+
+
+def get_group_max_metrics(
+    metrics: pd.DataFrame,
+    episode_groups: Mapping[str, Union[str, List[str], Tuple[str, ...]]],
+    experiments: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """Calculate the maximum aggregated over episode groups."""
+
+    # first get the max metrics by experiment and algorithm
+    max_metrics = get_max_metrics(metrics, experiments=experiments)
+
+    # for each group we create a new row in the output dataframe with the max of the maxs of the experiments in that group
+    group_maxs = []
+    for group_name, experiment_names in episode_groups.items():
+        if isinstance(experiment_names, str):
+            experiment_names = [experiment_names]
+        group_max = (
+            max_metrics[max_metrics["experiment"].isin(experiment_names)]
+            .groupby("algorithm")
+            .max(numeric_only=True)
+            .reset_index()
+        )
+        group_max["experiment"] = group_name
+        group_maxs.append(group_max)
+    return pd.concat(group_maxs, ignore_index=True)
+
+
+def get_group_min_metrics(
+    metrics: pd.DataFrame,
+    episode_groups: Mapping[str, Union[str, List[str], Tuple[str, ...]]],
+    experiments: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """Calculate the minimum aggregated over episode groups."""
+
+    # first get the min metrics by experiment and algorithm
+    min_metrics = get_min_metrics(metrics, experiments=experiments)
+
+    # for each group we create a new row in the output dataframe with the min of the mins of the experiments in that group
+    group_mins = []
+    for group_name, experiment_names in episode_groups.items():
+        if isinstance(experiment_names, str):
+            experiment_names = [experiment_names]
+        group_min = (
+            min_metrics[min_metrics["experiment"].isin(experiment_names)]
+            .groupby("algorithm")
+            .min(numeric_only=True)
+            .reset_index()
+        )
+        group_min["experiment"] = group_name
+        group_mins.append(group_min)
+    return pd.concat(group_mins, ignore_index=True)
+
+
 def get_metrics_summary(
     metrics: pd.DataFrame,
+    episode_groups: Optional[
+        Mapping[str, Union[str, List[str], Tuple[str, ...]]]
+    ] = None,
+    experiments: Optional[List[str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Generate a summary of metrics including mean, std deviation, median, max, and min.
 
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
+        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
+        episode_groups (Optional[Mapping[str, Union[str, List[str], Tuple[str, ...]]]]): Optional mapping of group names to experiment names for grouped summaries.
 
     Returns:
         Dict[str, pd.DataFrame]: Dictionary containing summarized metrics.
     """
-    return {
-        "mean": get_mean_metrics(metrics),
-        "std_dev": get_std_dev_metrics(metrics),
-        "median": get_median_metrics(metrics),
-        "max": get_max_metrics(metrics),
-        "min": get_min_metrics(metrics),
+    summary: Dict[str, pd.DataFrame] = {
+        "mean": get_mean_metrics(metrics, experiments),
+        "std_dev": get_std_dev_metrics(metrics, experiments),
+        "median": get_median_metrics(metrics, experiments),
+        "max": get_max_metrics(metrics, experiments),
+        "min": get_min_metrics(metrics, experiments),
     }
+    if episode_groups:
+        summary["group_mean"] = get_group_mean_metrics(metrics, episode_groups)
+        summary["group_std_dev"] = get_group_std_dev_metrics(metrics, episode_groups)
+        summary["group_max"] = get_group_max_metrics(metrics, episode_groups)
+        summary["group_min"] = get_group_min_metrics(metrics, episode_groups)
+    return summary
 
 
 def filter_metrics_by_algorithm(metrics: pd.DataFrame, algorithm: str) -> pd.DataFrame:

@@ -320,6 +320,12 @@ def main():
         default=Path("plotted_trajectories"),
     )
 
+    parser.add_argument(
+        "--use-tex",
+        action="store_true",
+        help="Whether to use LaTeX for text rendering in plots (requires LaTeX installation)",
+    )
+
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
@@ -337,6 +343,9 @@ def main():
     image_width_multi = config.get("image_width_multi", 1.0)
     bbox_pad_inches = float(config.get("bbox_pad_inches", 0.05))
     animation_writer = config.get("animation_writer", "pillow")
+    use_tex = args.use_tex or config.get("use_tex", False)
+    if use_tex:
+        pu.apply_trajectory_plot_rcparams()
 
     pickle_base_path = args.pickle_base_path
     config_pickle_base_path = config.get("pickle_base_path")

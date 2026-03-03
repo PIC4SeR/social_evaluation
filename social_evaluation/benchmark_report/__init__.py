@@ -5,7 +5,7 @@ This package contains smaller, focused modules used by the top-level shim
 """
 
 from .anova import AnovaMixin
-from .config import BenchmarkConfig, format_metric_groups, resolve_path
+from .config import BenchmarkConfig, format_intrusion_labels, format_metric_groups, resolve_path
 from .base import BenchmarkReportBase as BenchmarkReport
 from .plots import PlottingMixin
 from .rliable import RliableMixin
@@ -19,6 +19,7 @@ __all__ = [
     "TableExportMixin",
     "PlottingMixin",
     "RliableMixin",
+    "format_intrusion_labels",
     "format_metric_groups",
     "resolve_path",
     "generate_reports_for_root",

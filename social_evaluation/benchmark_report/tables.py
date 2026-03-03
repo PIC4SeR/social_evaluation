@@ -18,27 +18,6 @@ from social_evaluation.benchmark_report.utils import (
 from .utils import export_latex_table, style_report_latex
 from .config import BenchmarkConfig
 
-if TYPE_CHECKING:  # pragma: no cover - linting aid only
-    import pandas as pd
-
-    class _BaseProtocol:
-        config: BenchmarkConfig
-        success_results: pd.DataFrame
-        metrics_results: pd.DataFrame
-        metrics_results_parsed: pd.DataFrame
-        results: List[str]
-        ordered_experiments: List[str]
-        ordered_navigators: List[str]
-
-        def metric_direction(self, metric_key: str) -> str: ...
-
-        @property
-        def success_rate(self) -> pd.DataFrame: ...
-
-        def output_dir_tables(self) -> Path: ...
-
-        def _ensure_parent_directory(self, path: Path) -> None: ...
-
 
 class TableExportMixin:
     """Provide metric table generation and export capabilities."""
@@ -59,23 +38,55 @@ class TableExportMixin:
     def _metric_summary_tables(
         self, metric_labels: Dict[str, str]
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        # Build a combined DataFrame using per-metric filtered results.
+        # The index columns (experiment, algorithm, run) are taken from
+        # the *broadest* source so that rows are never lost.
+        index_cols = ["experiment", "algorithm", "run"]
+        base = self.metrics_results[index_cols].drop_duplicates()
+        combined = base.copy()
+        for metric_key in metric_labels:
+            source = self.results_for_metric(metric_key)
+            col_df = source[index_cols + [metric_key]].copy()
+            combined = combined.merge(col_df, on=index_cols, how="left")
+
         subset = select_metrics_by_columns(
-            self.success_results, list(metric_labels.keys())
+            combined, list(metric_labels.keys())
         )
         subset = subset.rename(columns=metric_labels)
-        summary = get_metrics_summary(subset)
+        summary = get_metrics_summary(
+            subset,
+            episode_groups=(
+                self.config.episode_groups if self.config.episode_groups else None
+            ),
+        )
+
+        def _append_group_rows(table: pd.DataFrame, grouped_key: str) -> pd.DataFrame:
+            grouped_df = summary.get(grouped_key)
+            if grouped_df is None or grouped_df.empty:
+                return table
+            grouped_df = grouped_df.rename(
+                columns={
+                    "experiment": r"\textbf{Experiment}",
+                    "algorithm": r"\textbf{Navigator}",
+                }
+            )
+            grouped_df = grouped_df[table.columns]
+            return pd.concat([table, grouped_df], ignore_index=True, sort=False)
+
         mean_table = summary["mean"].rename(
             columns={
                 "experiment": r"\textbf{Experiment}",
                 "algorithm": r"\textbf{Navigator}",
             }
         )
+        mean_table = _append_group_rows(mean_table, "group_mean")
         std_table = summary["std_dev"].rename(
             columns={
                 "experiment": r"\textbf{Experiment}",
                 "algorithm": r"\textbf{Navigator}",
             }
         )
+        std_table = _append_group_rows(std_table, "group_std_dev")
         return mean_table, std_table
 
     def _failure_penalty_table(self, metric_labels: Dict[str, str]) -> pd.DataFrame:
@@ -105,15 +116,17 @@ class TableExportMixin:
         *,
         weight_by_success: bool = False,
         cmap_name: Optional[str] = "viridis",
+        show_std: bool = True,
     ) -> pd.DataFrame:
         mean_table, std_table = self._metric_summary_tables(metric_labels)
         mean_df = mean_table.set_index([r"\textbf{Experiment}", r"\textbf{Navigator}"])
         std_df = std_table.set_index([r"\textbf{Experiment}", r"\textbf{Navigator}"])
-        mean_df = mean_df.reindex(
-            self.ordered_experiments, level=r"\textbf{Experiment}"
+        experiment_order = self._experiment_order_with_groups(
+            mean_df.index.get_level_values(r"\textbf{Experiment}").unique()
         )
+        mean_df = mean_df.reindex(experiment_order, level=r"\textbf{Experiment}")
         mean_df = mean_df.reindex(self.ordered_navigators, level=r"\textbf{Navigator}")
-        std_df = std_df.reindex(self.ordered_experiments, level=r"\textbf{Experiment}")
+        std_df = std_df.reindex(experiment_order, level=r"\textbf{Experiment}")
         std_df = std_df.reindex(self.ordered_navigators, level=r"\textbf{Navigator}")
         mean_df = self.success_rate.join(mean_df, how="inner")
         std_df = self.success_rate.join(std_df, how="inner")
@@ -169,10 +182,15 @@ class TableExportMixin:
                     std_df.at[idx, metric_label] = sr * std_numeric
 
         styled_df = mean_df.copy().astype(object)
-        for experiment in self.ordered_experiments:
+        experiments_to_style = [
+            exp
+            for exp in experiment_order
+            if exp in mean_df.index.get_level_values(r"\textbf{Experiment}")
+        ]
+        for experiment in experiments_to_style:
             styled_section = style_report_latex(
                 mean_df=mean_df.loc[experiment],
-                std_dev_df=std_df.loc[experiment],
+                std_dev_df=std_df.loc[experiment] if show_std else None,
                 cmap_name=cmap_name,
                 alpha=0.3,
                 metric_directions=column_directions,
@@ -184,30 +202,56 @@ class TableExportMixin:
     # Public helpers
     # ------------------------------------------------------------------
     def get_styled_metric_table(
-        self, group_key: str, *, cmap_name: Optional[str] = "viridis"
-    ) -> pd.DataFrame:
-        metric_labels = self.config.metric_groups[group_key]
-        return self._build_styled_metric_table(metric_labels, cmap_name=cmap_name)
-
-    def get_weighted_metric_table(
-        self, group_key: str, *, cmap_name: Optional[str] = "viridis"
+        self,
+        group_key: str,
+        *,
+        cmap_name: Optional[str] = "viridis",
+        show_std: bool = True,
     ) -> pd.DataFrame:
         metric_labels = self.config.metric_groups[group_key]
         return self._build_styled_metric_table(
-            metric_labels, weight_by_success=True, cmap_name=cmap_name
+            metric_labels, cmap_name=cmap_name, show_std=show_std
+        )
+
+    def get_weighted_metric_table(
+        self,
+        group_key: str,
+        *,
+        cmap_name: Optional[str] = "viridis",
+        show_std: bool = True,
+    ) -> pd.DataFrame:
+        metric_labels = self.config.metric_groups[group_key]
+        return self._build_styled_metric_table(
+            metric_labels,
+            weight_by_success=True,
+            cmap_name=cmap_name,
+            show_std=show_std,
         )
 
     # ------------------------------------------------------------------
     # Export routines
     # ------------------------------------------------------------------
     def export_metric_tables(
-        self, scale: float = 0.71, cmap_name: Optional[str] = "viridis"
+        self,
+        scale: float = 0.71,
+        cmap_name: Optional[str] = "viridis",
+        show_std: bool = True,
+        group_keys: Optional[List[str]] = None,
     ) -> None:
         output_path = self.output_dir_tables()
         output_path.mkdir(parents=True, exist_ok=True)
-        for group_key, metric_labels in self.config.metric_groups.items():
+        groups_to_export = (
+            {
+                k: self.config.metric_groups[k]
+                for k in group_keys
+                if k in self.config.metric_groups
+            }
+            if group_keys
+            else self.config.metric_groups
+        )
+        for group_key, metric_labels in groups_to_export.items():
             styled_df = self._build_styled_metric_table(
-                metric_labels, cmap_name=cmap_name
+                metric_labels, cmap_name=cmap_name, show_std=show_std
             )
             colorbar_file: Optional[Path] = None
             if cmap_name:
@@ -240,12 +284,10 @@ class TableExportMixin:
                 scale=scale,
                 multirow=True,
                 colorbar_path=colorbar_file,
-                colorbar_caption="Color scale (low to high)"
-                if colorbar_file
-                else None,
+                colorbar_caption="Color scale (low to high)" if colorbar_file else None,
             )
             weighted_styled_df = self.get_weighted_metric_table(
-                group_key, cmap_name=cmap_name
+                group_key, cmap_name=cmap_name, show_std=show_std
             )
             weighted_caption = self.config.metric_captions.get(group_key, "").strip()
             if weighted_caption:
@@ -267,9 +309,7 @@ class TableExportMixin:
                 scale=scale,
                 multirow=True,
                 colorbar_path=colorbar_file,
-                colorbar_caption="Color scale (low to high)"
-                if colorbar_file
-                else None,
+                colorbar_caption="Color scale (low to high)" if colorbar_file else None,
             )
 
     def export_success_rate_tables(self) -> None:

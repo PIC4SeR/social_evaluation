@@ -7,18 +7,19 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import yaml
 import numpy as np
 
-from .benchmark_report import (
+from social_evaluation.benchmark_report import (
     BenchmarkConfig,
     BenchmarkReport,
+    format_intrusion_labels,
     format_metric_groups,
     generate_reports_for_scenario,
     resolve_path,
 )
-from .benchmark_report.tex_reports import MissingAssetError
+from social_evaluation.benchmark_report.tex_reports import MissingAssetError
 
 
 def _log(message: str) -> None:
@@ -77,6 +78,78 @@ def _to_numpy_tau(values: Optional[Sequence[float]]) -> Optional[np.ndarray]:
     return array
 
 
+def _parse_font_sizes(cfg: Mapping[str, Any]) -> Optional[Dict[str, int]]:
+    """Extract a ``font_sizes`` mapping from a config entry, if present."""
+    raw = cfg.get("font_sizes")
+    if not isinstance(raw, Mapping):
+        return None
+    return {str(k): int(v) for k, v in raw.items()}
+
+
+def _parse_stat_comparisons(
+    cfg: Mapping[str, Any],
+) -> Optional[List[Tuple[str, str]]]:
+    """Parse ``stat_comparisons`` from a config entry.
+
+    Accepts a list of two-element lists/tuples, e.g.::
+
+        stat_comparisons:
+          - ["AlgoA", "AlgoB"]
+          - ["AlgoA", "AlgoC"]
+
+    Returns ``None`` when the key is absent or empty, signalling that
+    the default behaviour (all significant pairs) should be used.
+    """
+    raw = cfg.get("stat_comparisons")
+    if raw is None:
+        return None
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        return None
+    pairs: List[Tuple[str, str]] = []
+    for item in raw:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            pairs.append((str(item[0]), str(item[1])))
+    return pairs if pairs else None
+
+
+def _parse_stat_annotation_kwargs(
+    entry: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Extract statistical-annotation parameters from a config entry.
+
+    Returns a dict of keyword arguments ready to be unpacked into
+    ``plot_metric_distributions``.
+    """
+    kwargs: Dict[str, Any] = {}
+    if "annotate_stats" in entry:
+        kwargs["annotate_stats"] = bool(entry["annotate_stats"])
+    if "stat_test" in entry:
+        kwargs["stat_test"] = str(entry["stat_test"])
+    comparisons = _parse_stat_comparisons(entry)
+    if comparisons is not None:
+        kwargs["stat_comparisons"] = comparisons
+    if "stat_correction" in entry:
+        val = entry["stat_correction"]
+        kwargs["stat_correction"] = None if val is None else str(val)
+    if "stat_display_format" in entry:
+        kwargs["stat_display_format"] = str(entry["stat_display_format"])
+    if "stat_alpha" in entry:
+        kwargs["stat_alpha"] = float(entry["stat_alpha"])
+    if "stat_min_group_size" in entry:
+        kwargs["stat_min_group_size"] = int(entry["stat_min_group_size"])
+    if "stat_use_anova" in entry:
+        kwargs["stat_use_anova"] = bool(entry["stat_use_anova"])
+    if "stat_font_size" in entry:
+        kwargs["stat_font_size"] = int(entry["stat_font_size"])
+    if "stat_line_height" in entry:
+        kwargs["stat_line_height"] = float(entry["stat_line_height"])
+    if "stat_annotation_mode" in entry:
+        kwargs["stat_annotation_mode"] = str(entry["stat_annotation_mode"])
+    if "stat_baseline" in entry:
+        kwargs["stat_baseline"] = str(entry["stat_baseline"])
+    return kwargs
+
+
 def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> None:
     if _is_enabled(outputs_cfg.get("export_success_rate_tables"), False):
         _log("Exporting success rate tables")
@@ -86,13 +159,29 @@ def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> Non
     if _is_enabled(metric_tables_cfg, False):
         scale = 0.71
         cmap_name: Optional[str] = None
+        show_std = True
+        group_keys: Optional[List[str]] = None
         if isinstance(metric_tables_cfg, Mapping):
             scale = float(metric_tables_cfg.get("scale", scale))
             raw_cmap = metric_tables_cfg.get("cmap_name")
             if raw_cmap is not None:
                 cmap_name = str(raw_cmap).strip() or None
+            show_std_val = metric_tables_cfg.get("show_std")
+            if show_std_val is not None:
+                show_std = bool(show_std_val)
+            raw_groups = metric_tables_cfg.get("groups")
+            if raw_groups is not None:
+                if isinstance(raw_groups, (str, bytes)):
+                    group_keys = [str(raw_groups)]
+                elif isinstance(raw_groups, Iterable):
+                    group_keys = [str(g) for g in raw_groups]
         _log("Exporting metric summary tables")
-        report.export_metric_tables(scale=scale, cmap_name=cmap_name)
+        report.export_metric_tables(
+            scale=scale,
+            cmap_name=cmap_name,
+            show_std=show_std,
+            group_keys=group_keys,
+        )
 
     anova_cfg = outputs_cfg.get("export_anova_analysis")
     if _is_enabled(anova_cfg, False):
@@ -130,9 +219,15 @@ def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> Non
 def _run_plots(
     report: BenchmarkReport, outputs_cfg: Mapping[str, Any], base: Path
 ) -> None:
-    if _is_enabled(outputs_cfg.get("plot_success_rate"), False):
+    sr_cfg = outputs_cfg.get("plot_success_rate")
+    if _is_enabled(sr_cfg, False):
+        sr_font_sizes: Optional[Dict[str, int]] = None
+        if isinstance(sr_cfg, Mapping):
+            if "n_cols" in sr_cfg:
+                report.config.success_rate_n_cols = int(sr_cfg["n_cols"])
+            sr_font_sizes = _parse_font_sizes(sr_cfg)
         _log("Plotting success rate")
-        report.plot_success_rate()
+        report.plot_success_rate(font_sizes=sr_font_sizes)
 
     distributions_cfg = outputs_cfg.get("plot_metric_distributions")
     if isinstance(distributions_cfg, Iterable) and not isinstance(
@@ -143,15 +238,36 @@ def _run_plots(
                 continue
             kind = str(entry.get("kind", "box"))
             cmap_name = str(entry.get("cmap_name", "Paired"))
+            n_rows = int(entry.get("n_rows", 0))
+            n_cols = int(entry.get("n_cols", 0))
+            show_episode_ylabel = bool(entry.get("show_episode_ylabel", True))
+            connect_medians = bool(entry.get("connect_medians", False))
+            font_sizes = _parse_font_sizes(entry)
+            stat_kwargs = _parse_stat_annotation_kwargs(entry)
             _log(f"Plotting metric distributions ({kind})")
-            report.plot_metric_distributions(kind=kind, cmap_name=cmap_name)
+            report.plot_metric_distributions(
+                kind=kind,
+                cmap_name=cmap_name,
+                rows=n_rows,
+                n_cols=n_cols,
+                font_sizes=font_sizes,
+                show_episode_ylabel=show_episode_ylabel,
+                connect_medians=connect_medians,
+                **stat_kwargs,
+            )
     elif _is_enabled(distributions_cfg, False):
         _log("Plotting metric distributions (box)")
         report.plot_metric_distributions(kind="box", cmap_name="Paired")
 
-    if _is_enabled(outputs_cfg.get("plot_proxemic_intrusions"), False):
+    proxemic_cfg = outputs_cfg.get("plot_proxemic_intrusions")
+    if _is_enabled(proxemic_cfg, False):
         _log("Plotting proxemic intrusions")
-        report.plot_proxemic_intrusions()
+        n_rows = 2
+        font_sizes_prox: Optional[Dict[str, int]] = None
+        if isinstance(proxemic_cfg, Mapping):
+            n_rows = int(proxemic_cfg.get("n_rows", n_rows))
+            font_sizes_prox = _parse_font_sizes(proxemic_cfg)
+        report.plot_proxemic_intrusions(rows=n_rows, font_sizes=font_sizes_prox)
 
     heatmap_cfg = outputs_cfg.get("plot_pairwise_pvalue_heatmap")
     if _is_enabled(heatmap_cfg, False):
@@ -478,13 +594,34 @@ def _build_benchmark_config(
         if key not in benchmark_cfg:
             raise ValueError(f"Missing required benchmark configuration key: '{key}'")
 
+    def _resolve_bool_config(value: Any, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off"}:
+                return False
+        return bool(value)
+
     scenario_name: Optional[str] = None
     scenario_episodes_value: Any = None
     scenario_navigators_value: Any = None
+    scenario_groups_value: Any = None
+    scenario_discard_failed_value: Any = None
     if isinstance(scenario_entry, Mapping):
         scenario_name = scenario_entry.get("name") or scenario_entry.get("scenario")
         scenario_episodes_value = scenario_entry.get("episodes")
         scenario_navigators_value = scenario_entry.get("navigators")
+        scenario_groups_value = scenario_entry.get("episode_groups")
+        if scenario_groups_value is None:
+            scenario_groups_value = scenario_entry.get("experiment_groups")
+        scenario_discard_failed_value = scenario_entry.get("discard_failed_metrics")
     else:
         scenario_name = str(scenario_entry)
 
@@ -494,21 +631,18 @@ def _build_benchmark_config(
     episodes_value = scenario_episodes_value
     if episodes_value is None:
         episodes_value = benchmark_cfg.get("episodes")
-    if episodes_value is None:
-        raise ValueError(
-            f"Missing episodes configuration for scenario '{scenario_name}'"
-        )
-    if isinstance(episodes_value, (str, bytes)):
-        raise ValueError(
-            f"Episodes for scenario '{scenario_name}' must be a sequence, not a string"
-        )
-    if not isinstance(episodes_value, Iterable):
-        raise ValueError(f"Episodes for scenario '{scenario_name}' must be iterable")
-    episodes = [str(item) for item in episodes_value]
-    if not episodes:
-        raise ValueError(
-            f"Scenario '{scenario_name}' must specify at least one episode"
-        )
+    episodes: List[str] = []
+    if episodes_value is not None:
+        if isinstance(episodes_value, (str, bytes)):
+            raise ValueError(
+                f"Episodes for scenario '{scenario_name}' must be a sequence, not a string"
+            )
+        if not isinstance(episodes_value, Iterable):
+            raise ValueError(
+                f"Episodes for scenario '{scenario_name}' must be iterable"
+            )
+        episodes = [str(item) for item in episodes_value]
+    display_episode_order = list(episodes)
     seen_episodes = set()
     duplicate_episodes: List[str] = []
     for episode in episodes:
@@ -557,18 +691,35 @@ def _build_benchmark_config(
         )
 
     metric_groups_spec = benchmark_cfg.get("metric_groups", {})
-    formatted_groups, metric_dirs = format_metric_groups(metric_groups_spec)
+    formatted_groups, metric_dirs, discard_overrides = format_metric_groups(
+        metric_groups_spec
+    )
+
+    intrusion_spec = benchmark_cfg.get("intrusion_labels", {})
+    intrusion_labels_formatted, intrusion_discard_overrides = format_intrusion_labels(
+        intrusion_spec
+    )
 
     output_dir = base / scenario_name
     output_dir = output_dir.resolve()
     # check if episode names are provided; if not, generate from episode keys
     episode_names_cfg = dict(benchmark_cfg.get("episode_names", {}))
     scenario_episode_names: Dict[str, str] = {}
+
+    def _ensure_episode_entry(episode_key: str) -> str:
+        if episode_key not in episode_names_cfg:
+            episode_names_cfg[episode_key] = _to_camel_case(episode_key)
+        scenario_episode_names.setdefault(
+            episode_key, str(episode_names_cfg[episode_key])
+        )
+        return scenario_episode_names[episode_key]
+
+    def _append_episode_if_missing(episode_key: str) -> None:
+        if episode_key not in episodes:
+            episodes.append(episode_key)
+
     for episode in episodes:
-        if episode not in episode_names_cfg:
-            scenario_episode_names[episode] = _to_camel_case(episode)
-        else:
-            scenario_episode_names[episode] = episode_names_cfg[episode]
+        _ensure_episode_entry(episode)
 
     navigator_names_cfg = dict(benchmark_cfg.get("navigator_names", {}))
     scenario_navigator_names: Dict[str, str] = {}
@@ -586,22 +737,101 @@ def _build_benchmark_config(
             f"{missing_formatted}. Using raw keys as labels."
         )
 
+    episode_groups_value = (
+        scenario_groups_value
+        if scenario_groups_value is not None
+        else benchmark_cfg.get("episode_groups", benchmark_cfg.get("experiment_groups"))
+    )
+
+    def _normalize_episode_groups(
+        raw_groups: Any,
+    ) -> Dict[str, List[str]]:
+        if raw_groups is None:
+            return {}
+        if not isinstance(raw_groups, Mapping):
+            raise ValueError(
+                f"'episode_groups' for scenario '{scenario_name}' must be a mapping"
+            )
+        normalized: Dict[str, List[str]] = {}
+
+        def _resolve_member(label: str) -> Optional[str]:
+            if not label:
+                return None
+            if label in scenario_episode_names:
+                return scenario_episode_names[label]
+            for key, display_name in scenario_episode_names.items():
+                if display_name == label:
+                    return display_name
+            # Treat as a raw episode key not yet listed; include for data loading.
+            _append_episode_if_missing(label)
+            return _ensure_episode_entry(label)
+
+        for raw_group_name, members in raw_groups.items():
+            group_name = str(raw_group_name)
+            if not group_name or members is None:
+                continue
+            if isinstance(members, (str, bytes)):
+                member_iterable = [members]
+            elif isinstance(members, Iterable):
+                member_iterable = list(members)
+            else:
+                raise ValueError(
+                    "Episode group definitions must be strings or iterables "
+                    f"of strings (group '{group_name}' in scenario '{scenario_name}')"
+                )
+            resolved_members: List[str] = []
+            for member in member_iterable:
+                resolved_label = _resolve_member(str(member))
+                if resolved_label:
+                    resolved_members.append(resolved_label)
+            if resolved_members:
+                normalized[group_name] = resolved_members
+        return normalized
+
+    scenario_episode_groups = _normalize_episode_groups(episode_groups_value)
+
+    discard_failed_default = _resolve_bool_config(
+        benchmark_cfg.get("discard_failed_metrics"), True
+    )
+
+    discard_failed_metrics = _resolve_bool_config(
+        scenario_discard_failed_value, discard_failed_default
+    )
+
+    # Ensure episodes used for data loading include group members while keeping display order separate.
+    ordered_episodes: List[str] = []
+    seen_eps: set[str] = set()
+    for episode in episodes:
+        if episode not in seen_eps:
+            ordered_episodes.append(episode)
+            seen_eps.add(episode)
+    if not ordered_episodes:
+        raise ValueError(
+            f"Scenario '{scenario_name}' must specify at least one episode via "
+            "'episodes' or 'episode_groups'"
+        )
+
     config = BenchmarkConfig(
         root_dir=_resolve_required_path(
             benchmark_cfg.get("root_dir"), base, "root_dir"
         ),
         scenario=str(scenario_name),
         navigators=navigators,
-        episodes=episodes,
+        episodes=ordered_episodes,
+        display_episodes=display_episode_order,
         navigator_names=scenario_navigator_names,
         episode_names=scenario_episode_names,
         metric_groups=formatted_groups,
         metric_directions=metric_dirs,
         metric_captions=dict(benchmark_cfg.get("metric_captions", {})),
-        intrusion_labels=dict(benchmark_cfg.get("intrusion_labels", {})),
+        intrusion_labels=intrusion_labels_formatted,
+        episode_groups=scenario_episode_groups,
         alpha=float(benchmark_cfg.get("alpha", 0.8)),
         output_dir=output_dir,
         use_tex=bool(benchmark_cfg.get("use_tex", True)),
+        discard_failed_metrics=discard_failed_metrics,
+        quality_result_cmap=str(benchmark_cfg.get("intrusion_cmap", "Paired")),
+        metric_discard_failed={**discard_overrides, **intrusion_discard_overrides},
     )
     return config
 

@@ -37,3 +37,18 @@ The package is divided into different parts:
 ### Plotting and elaboration of the social evaluation metrics
 
 - [Plotting and elaboration of the social evaluation metrics](docs/metrics_visualization.md)
+
+### Benchmark report configuration
+
+The report generator in `social_evaluation/benchmark_report_.py` now exposes a flag to control whether failed runs contribute to the metric summaries. By default these runs are discarded (matching the previous behaviour), but you can override this globally or per-scenario in your YAML configuration:
+
+```yaml
+benchmark:
+  discard_failed_metrics: true  # default; set to false to keep failed runs
+  scenario:
+    - name: my_scenario
+      episodes: [...]
+      discard_failed_metrics: false  # optional per-scenario override
+```
+
+When `discard_failed_metrics` is `false`, all recorded runs are used when computing metric tables, plots, ANOVA analyses, and rliable summaries.

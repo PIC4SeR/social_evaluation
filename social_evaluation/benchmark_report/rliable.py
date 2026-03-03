@@ -99,7 +99,8 @@ class RliableMixin:
         self, metric_key: str, normalize: bool = True
     ) -> Tuple[Dict[str, np.ndarray], Optional[Dict[str, float]]]:
         columns = ["experiment", "algorithm", "run", metric_key]
-        df = self.success_results[columns].dropna(
+        source = self.results_for_metric(metric_key)
+        df = source[columns].dropna(
             subset=["experiment", "algorithm", "run"]
         )
         if df.empty:
