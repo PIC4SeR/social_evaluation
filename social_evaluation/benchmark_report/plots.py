@@ -259,6 +259,8 @@ class PlottingMixin:
         stat_line_height: float = 0.04,
         stat_annotation_mode: str = "brackets",
         stat_baseline: Optional[str] = None,
+        highlight_baseline: bool = False,
+        highlight_baseline_label: str = "Ours",
     ) -> None:
         """Plot distribution summaries (box or violin) for each metric group.
 
@@ -340,6 +342,15 @@ class PlottingMixin:
             Navigator name used as the reference when
             ``stat_annotation_mode="baseline_stars"``.  Required
             for that mode.
+        highlight_baseline : bool
+            When ``True`` and ``stat_annotation_mode="baseline_stars"``,
+            the baseline algorithm's legend label is rendered **bold**
+            and a label (see *highlight_baseline_label*) is placed
+            above the baseline's box/violin instead of leaving it
+            blank.  Default is ``False``.
+        highlight_baseline_label : str
+            Text shown above the baseline box/violin when
+            *highlight_baseline* is ``True``.  Default is ``"Ours"``.
         """
 
         fs = {**self._DEFAULT_DIST_FONT_SIZES, **(font_sizes or {})}
@@ -347,11 +358,17 @@ class PlottingMixin:
         output_path = Path(self.output_dir_figures())
         output_path.mkdir(parents=True, exist_ok=True)
         palette = self.navigator_palette
+        use_baseline_stars = annotate_stats and stat_annotation_mode == "baseline_stars"
+        _do_highlight = highlight_baseline and use_baseline_stars and stat_baseline
         legend_handles = [
             Patch(
                 facecolor=cast(Any, palette[label]),
                 edgecolor="black",
-                label=self._format_text(label),
+                label=self._format_text(
+                    rf"\textbf{{{label}}}"
+                    if _do_highlight and label == stat_baseline
+                    else label
+                ),
             )
             for label in palette
         ]
@@ -362,7 +379,6 @@ class PlottingMixin:
         # requested and `stat_use_anova` is True.
         _pairwise_df: Optional[pd.DataFrame] = None
         _anova_summary: Optional[pd.DataFrame] = None
-        use_baseline_stars = annotate_stats and stat_annotation_mode == "baseline_stars"
         if annotate_stats and stat_use_anova:
             if not use_baseline_stars and _Annotator is None:
                 raise RuntimeError(
@@ -506,6 +522,11 @@ class PlottingMixin:
                                         stat_font_size or fs.get("tick_label", 14)
                                     ),
                                     environment=environment,
+                                    highlight_label=(
+                                        highlight_baseline_label
+                                        if highlight_baseline
+                                        else None
+                                    ),
                                 )
                                 if cap:
                                     _caption_lines.append(cap)
@@ -822,12 +843,18 @@ class PlottingMixin:
         alpha: float,
         font_size: int,
         environment: str,
+        highlight_label: Optional[str] = None,
     ) -> str:
         """Place compact stars above each non-baseline box/violin.
 
         Returns a caption string summarising the statistical details
         for this metric × environment combination.  The caller can
         aggregate these captions and save them alongside the figure.
+
+        When *highlight_label* is not ``None``, the given text (e.g.
+        ``"Ours"``) is placed above the baseline position so it
+        visually stands out from the ``*``/``ns`` markers on the
+        other algorithms.
         """
 
         present = set(data[x].unique())
@@ -886,6 +913,20 @@ class PlottingMixin:
                 fontsize=font_size,
                 fontweight="bold",
                 color="black" if stars != "ns" else "gray",
+            )
+
+        # Place the highlight label above the baseline box/violin.
+        if highlight_label and baseline in xpos:
+            ax.text(
+                xpos[baseline],
+                star_y,
+                highlight_label,
+                ha="center",
+                va="bottom",
+                fontsize=font_size,
+                fontweight="bold",
+                fontstyle="italic",
+                color="black",
             )
 
         # --- Build caption text ---

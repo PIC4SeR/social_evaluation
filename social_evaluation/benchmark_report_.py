@@ -147,6 +147,10 @@ def _parse_stat_annotation_kwargs(
         kwargs["stat_annotation_mode"] = str(entry["stat_annotation_mode"])
     if "stat_baseline" in entry:
         kwargs["stat_baseline"] = str(entry["stat_baseline"])
+    if "highlight_baseline" in entry:
+        kwargs["highlight_baseline"] = bool(entry["highlight_baseline"])
+    if "highlight_baseline_label" in entry:
+        kwargs["highlight_baseline_label"] = str(entry["highlight_baseline_label"])
     return kwargs
 
 
