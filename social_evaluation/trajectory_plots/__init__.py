@@ -10,9 +10,14 @@ from .plot_utils import (
     retrieve_image_from_path,
     get_images_for_experiment,
     find_norm_for_velocity,
+    find_norm_for_time,
     set_ax_limits_from_trajectories,
     find_ax_limits,
     set_ax_limits,
+    normalize_goal,
+    get_bbox_for_figure,
+    extract_elapsed_time_seconds,
+    apply_trajectory_plot_rcparams,
 )
 
 from .animate_agents import (

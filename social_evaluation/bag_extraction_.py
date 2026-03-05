@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
 from social_evaluation.bag_extraction import (
-    get_messages_from_bag,
     odometry_to_df,
     people_to_df,
     path_to_df,
     string_to_df,
-    get_goal_position,
     tf2_messages_to_df,
-    get_first_timestamp,
     get_person_data,
     filter_df_by_time,
     get_bag_path,
@@ -16,13 +13,21 @@ from social_evaluation.bag_extraction import (
     get_pose_data_from_transform,
     compute_odometry_data,
 )
+from social_evaluation.bag_extraction.bag_extraction_utils import (
+    iterate_bag_messages,
+    odometry_msg_to_row,
+    people_msg_to_row,
+    path_msg_to_row,
+    tf_message_to_row,
+    string_msg_to_row,
+)
 from social_evaluation.common import get_map_data, retrieve_obstacle_positions
 import social_evaluation
 from tqdm import tqdm
 from rclpy.logging import set_logger_level
 
 import pandas as pd
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Set
 from pathlib import Path, PosixPath
 import argcomplete, argparse
 import yaml
@@ -30,10 +35,14 @@ import pickle
 import os
 
 
-def extract_topics_from_bag(
-    bag_file: Path, topics: List[str]
-) -> Tuple[
-    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame
+def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
+    float,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    Optional[Tuple[float, float]],
+    pd.DataFrame,
 ]:
     """
     Extract the topics specified in the config file from the bag file and return the dataframes for each topic.
@@ -41,33 +50,56 @@ def extract_topics_from_bag(
     :param bag_file: Path to the bag file
     :param topics: List of topics to extract
 
-    :return: Tuple with the dataframes for odometry, people, tf, path, goal and result
+    :return: Tuple with the start time and dataframes for odometry, people, tf, path, goal and result
     """
 
-    df_odometry = pd.DataFrame()
-    df_people = pd.DataFrame()
-    df_tf = pd.DataFrame()
-    df_path = pd.DataFrame()
-    df_result = pd.DataFrame()
-    goal = None
-    for topic in topics:
-        messages, msg_type = get_messages_from_bag(bag_file, topic)
+    odometry_rows: List[Dict[str, Any]] = []
+    people_rows: List[Dict[str, Any]] = []
+    tf_rows: List[Dict[str, Any]] = []
+    path_rows: List[Dict[str, Any]] = []
+    result_rows: List[Dict[str, Any]] = []
+    goal_positions: Set[Tuple[float, float]] = set()
+    first_timestamp: Optional[float] = None
+
+    for _, msg_type, message, timestamp in iterate_bag_messages(bag_file, topics):
+        if first_timestamp is None:
+            first_timestamp = timestamp
         match msg_type:
             case "nav_msgs/msg/Odometry":
-                df_odometry = odometry_to_df(messages)
+                odometry_rows.append(odometry_msg_to_row(message))
             case "people_msgs/msg/People":
-                df_people = people_to_df(messages)
+                people_rows.append(people_msg_to_row(message))
             case "geometry_msgs/msg/PoseStamped":
-                goal = get_goal_position(messages)
+                goal_positions.add(
+                    (
+                        message.pose.position.x,
+                        message.pose.position.y,
+                    )
+                )
             case "tf2_msgs/msg/TFMessage":
-                df_tf = tf2_messages_to_df(messages)
+                row = tf_message_to_row(message)
+                if row:
+                    tf_rows.append(row)
             case "nav_msgs/msg/Path":
-                df_path = path_to_df(messages)
+                path_rows.append(path_msg_to_row(message))
             case "std_msgs/msg/String":
-                df_result = string_to_df(messages)
+                result_rows.append(string_msg_to_row(message))
             case _:
                 print(f"Unknown message type: {msg_type}")
-    return df_odometry, df_people, df_tf, df_path, goal, df_result
+
+    start_time = first_timestamp if first_timestamp is not None else 0.0
+    df_odometry = odometry_to_df(odometry_rows)
+    df_people = people_to_df(people_rows)
+    df_tf = tf2_messages_to_df(tf_rows)
+    df_path = path_to_df(path_rows)
+    df_result = string_to_df(result_rows)
+    goal = None
+    if goal_positions:
+        if len(goal_positions) > 1:
+            print("Warning: more than one goal position found, using the first entry.")
+        goal = goal_positions.pop()
+
+    return start_time, df_odometry, df_people, df_tf, df_path, goal, df_result
 
 
 def extract_transforms_from_dataframes(
@@ -131,12 +163,15 @@ def extract_data_from_bag(
 
     # set logger level to warning to avoid printing too many messages
     set_logger_level("rosbag2_storage", 30)
-    # get the first timestamp in the bag file
-    start_time = get_first_timestamp(bag_file)
-
-    df_odometry, df_people, df_tf, df_path, goal, df_result = extract_topics_from_bag(
-        bag_file, topics
-    )
+    (
+        start_time,
+        df_odometry,
+        df_people,
+        df_tf,
+        df_path,
+        goal,
+        df_result,
+    ) = extract_topics_from_bag(bag_file, topics)
     transforms = extract_transforms_from_dataframes(
         df_tf, exp_config["transforms"], exp_config["robot_dynamics"]
     )
@@ -178,10 +213,18 @@ def extract_data_from_bag(
     }
 
 
-def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
-    """Extract the data from the bag files
+def extract_data_from_experiments(
+    config: Dict[str, Any],
+    output_file: Optional[Path] = None,
+    base_output_path: Optional[Path] = None,
+    existing_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, pd.DataFrame]:
+    """Extract the data from the bag files and persist progress incrementally.
 
     :param config: Configuration for the data extraction
+    :param output_file: Optional path used to save intermediate aggregated results
+    :param base_output_path: Optional base directory to store one pickle per experiment
+    :param existing_data: Previously extracted data to resume from
     :return: Dictionary with the extracted data
     """
 
@@ -189,13 +232,29 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
     algorithms = config["algorithms"]
     experiment_ids = config["experiment_ids"]
     base_path = config["base_path"]
-    time_limits = None
-    data = {}
+
+    data = existing_data if existing_data is not None else {}
     for experiment_name in tqdm(
         experiment_names,
-        desc=f"Extracting bags",
+        desc="Extracting bags",
         leave=False,
     ):
+        if base_output_path is None:
+            experiment_data = data
+            experiment_output_path = None
+        else:
+            experiment_output_path = get_experiment_output_path(
+                base_output_path, experiment_name
+            )
+            experiment_data = {}
+            if experiment_output_path.exists():
+                with open(experiment_output_path, "rb") as file:
+                    experiment_data = pickle.load(file)
+                data.update(experiment_data)
+                tqdm.write(
+                    f"Loaded {len(experiment_data)} cached entries for {experiment_name}"
+                )
+
         for algorithm in tqdm(
             algorithms,
             desc=f"Extracting bags for {experiment_name}",
@@ -207,18 +266,41 @@ def extract_data_from_experiments(config: Dict[str, Any]) -> Dict[str, pd.DataFr
                 leave=False,
             ):
                 bag_path = get_bag_path(experiment_name, algorithm, base_path, i)
-                # bag_paths.append(bag_path)
-                if "time_limits" in config and experiment_name in config["time_limits"]:
-                    if algorithm in config["time_limits"][experiment_name]:
-                        time_limits = config["time_limits"][experiment_name][algorithm][
-                            i
-                        ]
-                    else:
-                        time_limits = None
-                data[bag_path] = extract_data_from_bag(
-                    bag_path, config["topics"], config[experiment_name], time_limits
+                if bag_path in experiment_data:
+                    tqdm.write(f"Skipping {bag_path} (already extracted)")
+                    continue
+
+                time_limits = (
+                    config.get("time_limits", {})
+                    .get(experiment_name, {})
+                    .get(algorithm, {})
+                    .get(i)
                 )
+                experiment_data[bag_path] = extract_data_from_bag(
+                    bag_path,
+                    config["topics"],
+                    config[experiment_name],
+                    time_limits,
+                )
+                if experiment_output_path is not None:
+                    save_data(experiment_data, experiment_output_path)
+                elif output_file is not None:
+                    save_data(data, output_file)
+        if base_output_path is not None:
+            data.update(experiment_data)
     return data
+
+
+def get_experiment_output_path(base_output_path: Path, experiment_name: str) -> Path:
+    """Return the per-experiment pickle path under the provided base directory."""
+
+    experiment_relative = Path(experiment_name)
+    parts = experiment_relative.parts
+    directory = base_output_path
+    if len(parts) > 1:
+        directory = directory.joinpath(*parts[:-1])
+    filename = f"{experiment_relative.name}.pickle"
+    return directory / filename
 
 
 def extract_obstacle_data(
@@ -250,8 +332,12 @@ def save_data(data: Dict[str, pd.DataFrame], output_file: Path):
     :param data: Dictionary with the extracted data
     :param output_file: Path to the output file
     """
-    with open(output_file, "wb") as file:
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_output = output_path.with_name(output_path.name + ".tmp")
+    with open(tmp_output, "wb") as file:
         pickle.dump(data, file)
+    os.replace(tmp_output, output_path)
 
 
 def main():
@@ -287,6 +373,13 @@ def main():
         default="output.pickle",
     )
 
+    parser.add_argument(
+        "--base-output-path",
+        type=Path,
+        help="Base directory where per-experiment pickles will be stored",
+        default=None,
+    )
+
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
@@ -299,15 +392,35 @@ def main():
     for experiment in config["experiment_names"]:
         config[experiment] = env_config[experiment]
 
+    output_file = Path(args.output_file)
+    base_output_path = args.base_output_path
+
+    existing_data = None
+    if base_output_path is None and output_file.exists():
+        with open(output_file, "rb") as file:
+            existing_data = pickle.load(file)
+        print(
+            f"Loaded {len(existing_data)} previously extracted scenarios from {output_file}"
+        )
+
     if args.bag_file_path != PosixPath("None"):
         bag_file = Path(args.bag_file_path)
         bag_file = os.path.join(bag_file)
         data = extract_data_from_bag(bag_file, config)
-    else:
-        data = extract_data_from_experiments(config)
+        save_data(data, output_file)
+        return
 
-    # Save the extracted data
-    save_data(data, args.output_file)
+    data = extract_data_from_experiments(
+        config,
+        output_file=None if base_output_path is not None else output_file,
+        base_output_path=base_output_path,
+        existing_data=existing_data,
+    )
+
+    if base_output_path is None:
+        save_data(data, output_file)
+    else:
+        print(f"Per-experiment pickles stored under {base_output_path.resolve()}")
 
 
 if __name__ == "__main__":

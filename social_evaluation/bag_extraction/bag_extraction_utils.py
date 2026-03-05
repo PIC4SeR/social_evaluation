@@ -16,7 +16,7 @@ from nav_msgs.msg import Odometry, Path as NavPath
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
-from typing import List, Tuple, Union, Dict, Type
+from typing import List, Tuple, Union, Dict, Type, Iterable, Iterator, Optional, Set, Any
 
 MsgType = Union[
     Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath, String, Person
@@ -79,99 +79,197 @@ def get_messages_from_bag(bag_path: OSPath, topic: str) -> Tuple[List[MsgType], 
     return messages, type_map[topic]
 
 
-def odometry_to_df(odometry_msgs: List[Odometry]) -> pd.DataFrame:
-    """Convert a list of Odometry messages to a DataFrame.
+def iterate_bag_messages(
+    bag_path: OSPath, topics: Optional[Iterable[str]] = None
+) -> Iterator[Tuple[str, str, MsgType, float]]:
+    """Iterate through bag messages once, optionally filtering by topics.
 
-    :param odometry_msgs: List of Odometry messages
+    :param bag_path: The path to the bag file
+    :param topics: Optional iterable with topic names to keep
+    :return: Generator yielding (topic_name, msg_type, message, timestamp_sec)
+    """
+    topic_filter = set(topics) if topics is not None else None
+    storage_options, converter_options = get_rosbag_options(bag_path)
+    bag = rosbag2_py.SequentialReader()
+    bag.open(storage_options, converter_options)
+    topic_types = {topic.name: topic.type for topic in bag.get_all_topics_and_types()}
+    type_cache = {
+        topic_name: get_message(msg_type) for topic_name, msg_type in topic_types.items()
+    }
+
+    while bag.has_next():
+        topic_name, data, timestamp = bag.read_next()
+        if topic_filter is not None and topic_name not in topic_filter:
+            continue
+        if topic_name not in type_cache:
+            continue
+        msg = deserialize_message(data, type_cache[topic_name])
+        yield topic_name, topic_types[topic_name], msg, timestamp * 1e-9
+
+
+def odometry_msg_to_row(msg: Odometry) -> Dict[str, Any]:
+    time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+    x = msg.pose.pose.position.x
+    y = msg.pose.pose.position.y
+    z = msg.pose.pose.position.z
+    qx = msg.pose.pose.orientation.x
+    qy = msg.pose.pose.orientation.y
+    qz = msg.pose.pose.orientation.z
+    qw = msg.pose.pose.orientation.w
+    roll, pitch, yaw = euler_from_quaternion([qx, qy, qz, qw])
+    frame_id = msg.header.frame_id
+    velocity_x = msg.twist.twist.linear.x
+    velocity_y = msg.twist.twist.linear.y
+    velocity_z = msg.twist.twist.linear.z
+    angular_velocity_x = msg.twist.twist.angular.x
+    angular_velocity_y = msg.twist.twist.angular.y
+    angular_velocity_z = msg.twist.twist.angular.z
+    return {
+        "time": time,
+        "position_x": x,
+        "position_y": y,
+        "position_z": z,
+        "qx": qx,
+        "qy": qy,
+        "qz": qz,
+        "qw": qw,
+        "roll": roll,
+        "pitch": pitch,
+        "yaw": yaw,
+        "frame_id": frame_id,
+        "velocity_x": velocity_x,
+        "velocity_y": velocity_y,
+        "velocity_z": velocity_z,
+        "angular_velocity_x": angular_velocity_x,
+        "angular_velocity_y": angular_velocity_y,
+        "angular_velocity_z": angular_velocity_z,
+    }
+
+
+def people_msg_to_row(msg: People) -> Dict[str, Any]:
+    time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+    row = {"time": time}
+    for person in msg.people:
+        tags = dict(zip(person.tagnames, person.tags))
+        behavior_tag = "behavior" if "behavior" in tags else "behaviour"
+        row[person.name] = {
+            "name": person.name,
+            "id": tags["id"],
+            "group_id": tags["group_id"],
+            "behavior": tags[behavior_tag],
+            "position_x": person.position.x,
+            "position_y": person.position.y,
+            "yaw": person.position.z,
+            "velocity_x": person.velocity.x,
+            "velocity_y": person.velocity.y,
+            "angular_velocity_z": person.velocity.z,
+        }
+    return row
+
+
+def path_msg_to_row(msg: NavPath) -> Dict[str, Any]:
+    time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+    poses = []
+    for pose_stamped in msg.poses:
+        x = pose_stamped.pose.position.x
+        y = pose_stamped.pose.position.y
+        z = pose_stamped.pose.position.z
+        qx = pose_stamped.pose.orientation.x
+        qy = pose_stamped.pose.orientation.y
+        qz = pose_stamped.pose.orientation.z
+        qw = pose_stamped.pose.orientation.w
+        roll, pitch, yaw = euler_from_quaternion([qx, qy, qz, qw])
+        poses.append(
+            {
+                "position_x": x,
+                "position_y": y,
+                "position_z": z,
+                "qx": qx,
+                "qy": qy,
+                "qz": qz,
+                "qw": qw,
+                "roll": roll,
+                "pitch": pitch,
+                "yaw": yaw,
+            }
+        )
+    return {"time": time, "poses": poses}
+
+
+def tf_message_to_row(msg: TFMessage) -> Dict[str, Any]:
+    if not msg.transforms:
+        return {}
+    time = msg.transforms[0].header.stamp.sec + msg.transforms[0].header.stamp.nanosec * 1e-9
+    row = {"time": time}
+    for transform_stamped in msg.transforms:
+        translation = np.array(
+            [
+                transform_stamped.transform.translation.x,
+                transform_stamped.transform.translation.y,
+                transform_stamped.transform.translation.z,
+            ]
+        )
+        rotation = np.array(
+            [
+                transform_stamped.transform.rotation.x,
+                transform_stamped.transform.rotation.y,
+                transform_stamped.transform.rotation.z,
+                transform_stamped.transform.rotation.w,
+            ]
+        )
+        euler = euler_from_quaternion(rotation)
+        transform_matrix = compose_matrix(translate=translation, angles=euler)
+        key = f"{transform_stamped.header.frame_id} -> {transform_stamped.child_frame_id}"
+        row[key] = {
+            "frame_id": transform_stamped.header.frame_id,
+            "child_frame_id": transform_stamped.child_frame_id,
+            "transform": transform_matrix,
+        }
+    return row
+
+
+def string_msg_to_row(msg: String) -> Dict[str, Any]:
+    return {"data": msg.data}
+
+
+def odometry_to_df(
+    odometry_msgs: Iterable[Union[Odometry, Dict[str, Any]]]
+) -> pd.DataFrame:
+    """Convert Odometry data to a DataFrame.
+
+    :param odometry_msgs: Iterable of Odometry messages or prepared row dicts
     :return: DataFrame containing the odometry data
     """
     series_list = []
     for msg in odometry_msgs:
-        time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        x = msg.pose.pose.position.x
-        y = msg.pose.pose.position.y
-        z = msg.pose.pose.position.z
-        qx = msg.pose.pose.orientation.x
-        qy = msg.pose.pose.orientation.y
-        qz = msg.pose.pose.orientation.z
-        qw = msg.pose.pose.orientation.w
-        roll, pitch, yaw = euler_from_quaternion([qx, qy, qz, qw])
-        frame_id = msg.header.frame_id
-        velocity_x = msg.twist.twist.linear.x
-        velocity_y = msg.twist.twist.linear.y
-        velocity_z = msg.twist.twist.linear.z
-        angular_velocity_x = msg.twist.twist.angular.x
-        angular_velocity_y = msg.twist.twist.angular.y
-        angular_velocity_z = msg.twist.twist.angular.z
-        series_list.append(
-            pd.Series(
-                {
-                    "time": time,
-                    "position_x": x,
-                    "position_y": y,
-                    "position_z": z,
-                    "qx": qx,
-                    "qy": qy,
-                    "qz": qz,
-                    "qw": qw,
-                    "roll": roll,
-                    "pitch": pitch,
-                    "yaw": yaw,
-                    "frame_id": frame_id,
-                    "velocity_x": velocity_x,
-                    "velocity_y": velocity_y,
-                    "velocity_z": velocity_z,
-                    "angular_velocity_x": angular_velocity_x,
-                    "angular_velocity_y": angular_velocity_y,
-                    "angular_velocity_z": angular_velocity_z,
-                }
-            )
-        )
-    df = pd.DataFrame(series_list)
-    return df
+        row = odometry_msg_to_row(msg) if isinstance(msg, Odometry) else msg
+        if not row:
+            continue
+        series_list.append(pd.Series(row))
+    return pd.DataFrame(series_list)
 
 
-def people_to_df(people_msgs: List[People]) -> pd.DataFrame:
-    """Convert a list of People messages to a DataFrame.
+def people_to_df(
+    people_msgs: Iterable[Union[People, Dict[str, Any]]]
+) -> pd.DataFrame:
+    """Convert People data to a DataFrame.
 
-    :param people_msgs: List of People messages
+    :param people_msgs: Iterable of People messages or prepared row dicts
     :return: DataFrame containing the people data
     """
-    people_names = set()
-    for msg in people_msgs:
-        for person in msg.people:
-            people_names.add(person.name)
-    df = pd.DataFrame(columns=["time", *people_names])
-    df.time = df.time.astype(float)
+    people_names: Set[str] = set()
     series_list = []
     for msg in people_msgs:
-        time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        people = []
-        for person in msg.people:
-            tags = dict(zip(person.tagnames, person.tags))
-            # check if the tag is behavior or behaviour
-
-            behavior_tag = "behavior" if "behavior" in tags else "behaviour"
-            people.append(
-                {
-                    "name": person.name,
-                    "id": tags["id"],
-                    "group_id": tags["group_id"],
-                    "behavior": tags[behavior_tag],
-                    "position_x": person.position.x,
-                    "position_y": person.position.y,
-                    "yaw": person.position.z,
-                    "velocity_x": person.velocity.x,
-                    "velocity_y": person.velocity.y,
-                    "angular_velocity_z": person.velocity.z,
-                }
-            )
-        series_list.append(
-            pd.Series(
-                {"time": time, **{person["name"]: person for person in people}},
-            )
-        )
+        row = people_msg_to_row(msg) if isinstance(msg, People) else msg
+        if not row:
+            continue
+        people_names.update(key for key in row.keys() if key != "time")
+        series_list.append(pd.Series(row))
+    if not series_list:
+        return pd.DataFrame()
     df_people = pd.DataFrame(series_list)
+    df = pd.DataFrame(columns=["time", *people_names])
+    df.time = df.time.astype(float)
     df = df.combine_first(df_people)
     return df
 
@@ -215,138 +313,56 @@ def laser_scan_to_df(laser_scan_msgs: List[LaserScan]) -> pd.DataFrame:
     return df
 
 
-def path_to_df(path_msgs: List[NavPath]) -> pd.DataFrame:
-    """Convert a list of Path messages to a DataFrame.
+def path_to_df(path_msgs: Iterable[Union[NavPath, Dict[str, Any]]]) -> pd.DataFrame:
+    """Convert Path data to a DataFrame."""
 
-    :param path_msgs: List of Path messages
-    :return: DataFrame containing the path data
-    """
     series_list = []
     for msg in path_msgs:
-        time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        poses = []
-        for pose_stamped in msg.poses:
-            x = pose_stamped.pose.position.x
-            y = pose_stamped.pose.position.y
-            z = pose_stamped.pose.position.z
-            qx = pose_stamped.pose.orientation.x
-            qy = pose_stamped.pose.orientation.y
-            qz = pose_stamped.pose.orientation.z
-            qw = pose_stamped.pose.orientation.w
-            roll, pitch, yaw = euler_from_quaternion([qx, qy, qz, qw])
-            poses.append(
-                {
-                    "position_x": x,
-                    "position_y": y,
-                    "position_z": z,
-                    "qx": qx,
-                    "qy": qy,
-                    "qz": qz,
-                    "qw": qw,
-                    "roll": roll,
-                    "pitch": pitch,
-                    "yaw": yaw,
-                }
-            )
-        series_list.append(
-            pd.Series(
-                {
-                    "time": time,
-                    "poses": poses,
-                }
-            )
-        )
-    df = pd.DataFrame(series_list)
-    return df
+        row = path_msg_to_row(msg) if isinstance(msg, NavPath) else msg
+        if not row:
+            continue
+        series_list.append(pd.Series(row))
+    return pd.DataFrame(series_list)
 
 
-def tf2_messages_to_df(tf_messages: List[TFMessage]) -> pd.DataFrame:
-    """Convert a list of TFMessage messages to a DataFrame.
+def tf2_messages_to_df(
+    tf_messages: Iterable[Union[TFMessage, Dict[str, Any]]]
+) -> pd.DataFrame:
+    """Convert TFMessage data to a DataFrame."""
 
-    :param tf_messages: List of TFMessage messages
-    :return: DataFrame containing the transform data
-    """
-    transforms_set = set()
-    for msg in tf_messages:
-        for transform_stamped in msg.transforms:
-            transforms_set.add(
-                f"{transform_stamped.header.frame_id} -> {transform_stamped.child_frame_id}"
-            )
-    df = pd.DataFrame(columns=["time", *transforms_set])
+    transforms_set: Set[str] = set()
     series_list = []
     for msg in tf_messages:
-        time = (
-            msg.transforms[0].header.stamp.sec
-            + msg.transforms[0].header.stamp.nanosec * 1e-9
-        )
-        transforms_list = []
-        for transform_stamped in msg.transforms:
-            translation = np.array(
-                [
-                    transform_stamped.transform.translation.x,
-                    transform_stamped.transform.translation.y,
-                    transform_stamped.transform.translation.z,
-                ]
-            )
-            rotation = np.array(
-                [
-                    transform_stamped.transform.rotation.x,
-                    transform_stamped.transform.rotation.y,
-                    transform_stamped.transform.rotation.z,
-                    transform_stamped.transform.rotation.w,
-                ]
-            )
-            euler = euler_from_quaternion(rotation)
-
-            transform_matrix = compose_matrix(translate=translation, angles=euler)
-            transforms_list.append(
-                {
-                    "frame_id": transform_stamped.header.frame_id,
-                    "child_frame_id": transform_stamped.child_frame_id,
-                    "transform": transform_matrix,
-                }
-            )
-        series_list.append(
-            pd.Series(
-                {
-                    "time": time,
-                    **{
-                        f'{transform["frame_id"]} -> {transform["child_frame_id"]}': transform
-                        for transform in transforms_list
-                    },
-                }
-            )
-        )
+        row = tf_message_to_row(msg) if isinstance(msg, TFMessage) else msg
+        if not row:
+            continue
+        transforms_set.update(key for key in row.keys() if key != "time")
+        series_list.append(pd.Series(row))
+    if not series_list:
+        return pd.DataFrame()
     df_transforms = pd.DataFrame(series_list)
+    df = pd.DataFrame(columns=["time", *transforms_set])
     df = df.combine_first(df_transforms)
     df.sort_values(by="time", inplace=True, ignore_index=True)
     df.infer_objects(copy=False)
-    # Apply to each column containing dictionaries
     df = ffill_dicts(df)
-
     df.dropna(inplace=True)
     df.reset_index(drop=True, inplace=True)
     return df
 
 
-def string_to_df(string_msgs: List[String]) -> pd.DataFrame:
-    """Convert a list of String messages to a DataFrame.
+def string_to_df(
+    string_msgs: Iterable[Union[String, Dict[str, Any]]]
+) -> pd.DataFrame:
+    """Convert string messages to a DataFrame."""
 
-    :param string_msgs: List of String messages
-    :return: DataFrame containing the string data
-    """
     series_list = []
     for msg in string_msgs:
-        data = msg.data
-        series_list.append(
-            pd.Series(
-                {
-                    "data": data,
-                }
-            )
-        )
-    df = pd.DataFrame(series_list)
-    return df
+        row = string_msg_to_row(msg) if isinstance(msg, String) else msg
+        if not row:
+            continue
+        series_list.append(pd.Series(row))
+    return pd.DataFrame(series_list)
 
 
 def get_person_data(df: pd.DataFrame, person_name: str) -> pd.DataFrame:
