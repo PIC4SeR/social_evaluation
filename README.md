@@ -5,8 +5,10 @@
 ```bash
 git clone ...
 cd social_evaluation
-pip install -e . # to install the package in editable mode
+pip install -e . # installs pandas>=1.5,<2.2, matplotlib>=3.6.3,<3.9, seaborn>=0.13,<0.14
 ```
+
+If you already installed the package in this workspace, reinstall it after the metadata change so pip can update the plotting stack.
 
 ## Usage
 

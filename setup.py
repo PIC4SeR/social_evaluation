@@ -29,10 +29,13 @@ setup(
     package_data={"social_evaluation": ["py.typed", "version.txt"]},
     install_requires=[
         "numpy",
-        # For reading logs
-        "pandas",
-        # Plotting learning curves
-        "matplotlib",
+        # For reading logs. Keep pandas below 2.2 and matplotlib at
+        # least 3.6.3 to avoid the Series indexing failure triggered
+        # by seaborn's categorical plots with older matplotlib.
+        "pandas>=1.5,<2.2",
+        # Plotting stack used by benchmark_report.
+        "matplotlib>=3.6.3,<3.9",
+        "seaborn>=0.13,<0.14",
         # for reading rosbags
         # "rosbag2_py",
         # "nav_msgs",

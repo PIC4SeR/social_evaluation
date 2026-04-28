@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 
 TEX_PREAMBLE = r"""\documentclass[11pt,a4paper]{article}
@@ -61,6 +62,27 @@ def _find_first_existing(base: Path, items: Iterable[str]) -> Optional[Path]:
     return None
 
 
+def _page_sort_key(path: Path) -> int:
+    match = re.search(r"_page(\d+)$", path.stem)
+    return int(match.group(1)) if match else 0
+
+
+def _find_existing_or_paginated(base: Path, items: Iterable[str]) -> List[Path]:
+    for entry in items:
+        candidate = base / entry
+        if candidate.exists():
+            return [candidate]
+        stem = candidate.stem
+        suffix = candidate.suffix
+        paginated = sorted(
+            base.glob(f"{stem}_page*{suffix}"),
+            key=_page_sort_key,
+        )
+        if paginated:
+            return paginated
+    return []
+
+
 def _relative(asset: Path, root: Path) -> str:
     return asset.relative_to(root).as_posix()
 
@@ -72,6 +94,147 @@ def _require_asset(asset: Optional[Path], description: str, scenario: str) -> Pa
             "Run benchmark_plots to regenerate the required tables or plots."
         )
     return asset
+
+
+def _require_assets(assets: List[Path], description: str, scenario: str) -> List[Path]:
+    if not assets:
+        raise MissingAssetError(
+            f"Missing {description} for scenario '{scenario}'. "
+            "Run benchmark_plots to regenerate the required tables or plots."
+        )
+    return assets
+
+
+def _humanize_group_key(group_key: str) -> str:
+    text = group_key.strip()
+    if text.startswith("metrics_"):
+        text = text[len("metrics_") :]
+    text = text.replace("_", " ").strip()
+    if not text:
+        return group_key
+    return text.title()
+
+
+def _build_metric_group_order(
+    tables_dir: Path,
+    plots_dir: Path,
+    preferred_keys: Optional[Sequence[str]] = None,
+) -> List[str]:
+    discovered: List[str] = []
+    seen: set[str] = set()
+
+    def _add(group_key: str) -> None:
+        if group_key and group_key not in seen:
+            discovered.append(group_key)
+            seen.add(group_key)
+
+    for key in preferred_keys or []:
+        _add(str(key))
+
+    if tables_dir.exists():
+        for path in sorted(tables_dir.glob("*_summary_by_*.tex")):
+            match = re.match(
+                r"^(?P<group>.+?)_(?:weighted_)?summary_by_(?:navigator|algorithm)\.tex$",
+                path.name,
+            )
+            if match:
+                _add(match.group("group"))
+
+    if plots_dir.exists():
+        for path in sorted(plots_dir.glob("*plots_by_*.png")):
+            match = re.match(
+                r"^(?P<group>.+?)_(?:box|violin)plots_by_(?:navigator|algorithm)(?:_page\d+)?\.png$",
+                path.name,
+            )
+            if match:
+                _add(match.group("group"))
+
+    return discovered
+
+
+def _append_metric_group_summary_sections(
+    lines: List[str],
+    scenario_dir: Path,
+    metric_groups: List[Dict[str, Any]],
+    *,
+    weighted: bool,
+) -> None:
+    groups_with_tables = []
+    for group in metric_groups:
+        table = group["weighted_table"] if weighted else group["summary_table"]
+        if table:
+            groups_with_tables.append(group)
+    if not groups_with_tables:
+        return
+
+    section_title = "Success-Weighted Metric Summary" if weighted else "Metric Summary"
+    lines.append(rf"\section{{{section_title}}}")
+    lines.append("")
+    for group in groups_with_tables:
+        title = group["title"]
+        table_path = group["weighted_table"] if weighted else group["summary_table"]
+        assert table_path is not None
+        lines.append(rf"\subsection{{{title}}}")
+        lines.append(
+            (
+                rf"This table summarises the success-weighted metrics for the {title.lower()} group."
+                if weighted
+                else rf"This table summarises the reported metrics for the {title.lower()} group."
+            )
+        )
+        lines.append(rf"\input{{{_relative(table_path, scenario_dir)}}}")
+        lines.append("")
+
+
+def _append_metric_group_plot_sections(
+    lines: List[str],
+    scenario_dir: Path,
+    metric_groups: List[Dict[str, Any]],
+    *,
+    width: str,
+    placement: Optional[str] = None,
+) -> None:
+    groups_with_plots = [
+        group for group in metric_groups if group["box_plots"] or group["violin_plots"]
+    ]
+    if not groups_with_plots:
+        return
+
+    lines.append(r"\section{Metric Distributions}")
+    lines.append("")
+    for group in groups_with_plots:
+        title = group["title"]
+        label_prefix = group["key"]
+        lines.append(rf"\subsection{{{title}}}")
+        lines.append(
+            rf"These plots show the distribution of the {title.lower()} metrics across the benchmark environments."
+        )
+        lines.append("")
+        if group["box_plots"]:
+            _append_figure_series(
+                lines,
+                scenario_dir=scenario_dir,
+                assets=group["box_plots"],
+                width=width,
+                caption=(
+                    rf"Boxplots of {title.lower()} metrics by algorithm across benchmark environments."
+                ),
+                label=rf"fig:{label_prefix}_boxplots_by_algorithm",
+                placement=placement,
+            )
+        if group["violin_plots"]:
+            _append_figure_series(
+                lines,
+                scenario_dir=scenario_dir,
+                assets=group["violin_plots"],
+                width=width,
+                caption=(
+                    rf"Violin plots of {title.lower()} metrics by algorithm across benchmark environments."
+                ),
+                label=rf"fig:{label_prefix}_violinplots_by_algorithm",
+                placement=placement,
+            )
+        lines.append("")
 
 
 def _format_float(value: Any, *, precision: int = 2, scientific: bool = False) -> str:
@@ -86,6 +249,55 @@ def _format_float(value: Any, *, precision: int = 2, scientific: bool = False) -
 
 def _latex_path(path: str) -> str:
     return path.replace("_", r"\_")
+
+
+def _append_figure(
+    lines: List[str],
+    *,
+    image_path: str,
+    width: str,
+    caption: str,
+    label: str,
+    placement: Optional[str] = None,
+) -> None:
+    begin = r"\begin{figure}"
+    if placement:
+        begin = rf"\begin{{figure}}[{placement}]"
+    lines.append(begin)
+    lines.append(r"    \centering")
+    lines.append(rf"    \includegraphics[width={width}]{{{image_path}}}")
+    lines.append(rf"    \caption{{{caption}}}")
+    lines.append(rf"    \label{{{label}}}")
+    lines.append(r"\end{figure}")
+
+
+def _append_figure_series(
+    lines: List[str],
+    *,
+    scenario_dir: Path,
+    assets: List[Path],
+    width: str,
+    caption: str,
+    label: str,
+    placement: Optional[str] = None,
+) -> None:
+    total = len(assets)
+    for idx, asset in enumerate(assets, start=1):
+        rel_asset = _relative(asset, scenario_dir)
+        page_caption = caption
+        page_label = label
+        if total > 1:
+            page_caption = f"{caption.rstrip('.')} (page {idx}/{total})."
+            page_label = f"{label}_page{idx}"
+        _append_figure(
+            lines,
+            image_path=rel_asset,
+            width=width,
+            caption=page_caption,
+            label=page_label,
+            placement=placement,
+        )
+        lines.append("")
 
 
 def _load_anova_summary(summary_path: Path) -> List[Dict[str, Any]]:
@@ -211,85 +423,52 @@ def _append_anova_sections(
 
 
 def _build_standard_document(scenario_dir: Path, assets: Dict[str, Any]) -> str:
-    nav_table = _relative(assets["nav_table"], scenario_dir)
-    social_table = _relative(assets["social_table"], scenario_dir)
-    success_plot = _relative(assets["success_plot"], scenario_dir)
-    nav_box_plot = _relative(assets["nav_box_plot"], scenario_dir)
-    nav_violin_plot = _relative(assets["nav_violin_plot"], scenario_dir)
-    social_box_plot = _relative(assets["social_box_plot"], scenario_dir)
-    social_violin_plot = _relative(assets["social_violin_plot"], scenario_dir)
-    proxemic_plot = _relative(assets["proxemic_plot"], scenario_dir)
-
     lines: List[str] = []
     lines.append(TEX_PREAMBLE)
     lines.append(r"\begin{document}")
     lines.append("")
-    lines.append(rf"\input{{{nav_table}}}")
-    lines.append(rf"\input{{{social_table}}}")
-    lines.append("")
-    lines.append(r"\begin{figure}")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=0.9\textwidth]{{{success_plot}}}")
-    lines.append(
-        r"    \caption{Success rate of each algorithm across benchmark environments.}"
+    _append_metric_group_summary_sections(
+        lines,
+        scenario_dir,
+        assets["metric_groups"],
+        weighted=False,
     )
-    lines.append(r"    \label{fig:success_rate_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-    lines.append(r"\begin{figure}")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=0.9\textwidth]{{{nav_box_plot}}}")
-    lines.append(
-        r"    \caption{Boxplots of navigation metrics by algorithm across "
-        r"benchmark environments.}"
+
+    success_plot = assets.get("success_plot")
+    proxemic_plot = assets.get("proxemic_plot")
+    if success_plot or proxemic_plot:
+        lines.append(r"\section{Overview Figures}")
+        lines.append("")
+    if success_plot:
+        lines.append(r"\begin{figure}")
+        lines.append(r"    \centering")
+        lines.append(
+            rf"    \includegraphics[width=0.9\textwidth]{{{_relative(success_plot, scenario_dir)}}}"
+        )
+        lines.append(
+            r"    \caption{Success rate of each algorithm across benchmark environments.}"
+        )
+        lines.append(r"    \label{fig:success_rate_by_algorithm}")
+        lines.append(r"\end{figure}")
+        lines.append("")
+    _append_metric_group_plot_sections(
+        lines,
+        scenario_dir,
+        assets["metric_groups"],
+        width=r"0.9\textwidth",
     )
-    lines.append(r"    \label{fig:metrics_nav_boxplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append(r"\begin{figure}")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=0.9\textwidth]{{{nav_violin_plot}}}")
-    lines.append(
-        r"    \caption{Violin plots of navigation metrics by algorithm across "
-        r"benchmark environments.}"
-    )
-    lines.append(r"    \label{fig:metrics_nav_violinplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-    lines.append(r"\begin{figure}")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=0.85\textwidth]{{{social_box_plot}}}")
-    lines.append(
-        r"    \caption{Boxplots of social metrics by algorithm across "
-        r"benchmark environments.}"
-    )
-    lines.append(r"    \label{fig:metrics_social_boxplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-    lines.append(r"\begin{figure}")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=0.85\textwidth]{{{social_violin_plot}}}")
-    lines.append(
-        r"    \caption{Violin plots of social metrics by algorithm across "
-        r"benchmark environments.}"
-    )
-    lines.append(r"    \label{fig:metrics_social_violinplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append(
-        r"%     \item \textit{Proxemics occupancy}: intimate space ($PR_I$), "
-        r"personal space ($PR_{PE}$), social space ($PR_S$), public space "
-        r"($PR_{PU}$)."
-    )
-    lines.append("")
-    lines.append(r"\begin{figure}")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=0.9\textwidth]{{{proxemic_plot}}}")
-    lines.append(
-        r"    \caption{Proxemic distances and intrusions by algorithm across "
-        r"benchmark environments.}"
-    )
-    lines.append(r"    \label{fig:proxemic_distances_intrusions}")
-    lines.append(r"\end{figure}")
-    lines.append("")
+    if proxemic_plot:
+        lines.append(r"\begin{figure}")
+        lines.append(r"    \centering")
+        lines.append(
+            rf"    \includegraphics[width=0.9\textwidth]{{{_relative(proxemic_plot, scenario_dir)}}}"
+        )
+        lines.append(
+            r"    \caption{Proxemic distances and intrusions by algorithm across benchmark environments.}"
+        )
+        lines.append(r"    \label{fig:proxemic_distances_intrusions}")
+        lines.append(r"\end{figure}")
+        lines.append("")
 
     anova_assets = assets.get("anova")
     if anova_assets:
@@ -305,123 +484,57 @@ def _build_weighted_document(
     assets: Dict[str, Any],
     include_paths: Dict[str, Optional[Path]],
 ) -> str:
-    nav_table = _relative(assets["nav_weighted"], scenario_dir)
-    social_table = _relative(assets["social_weighted"], scenario_dir)
-    success_plot = _relative(assets["success_plot"], scenario_dir)
-    proxemic_plot = _relative(assets["proxemic_plot"], scenario_dir)
-    nav_box_plot = _relative(assets["nav_box_plot"], scenario_dir)
-    nav_violin_plot = _relative(assets["nav_violin_plot"], scenario_dir)
-    social_box_plot = _relative(assets["social_box_plot"], scenario_dir)
-    social_violin_plot = _relative(assets["social_violin_plot"], scenario_dir)
-
     lines: List[str] = []
     lines.append(TEX_PREAMBLE_WITH_SUBCAPTION)
     lines.append(r"\begin{document}")
     lines.append("")
-    lines.append(r"\section{Navigation Performance Summary}")
-    lines.append(
-        r"This section reports the expected cost (ENC) of each navigation metric "
-        r"after integrating success-rate penalties, showing how often a navigator "
-        r"finishes and how costly it is when it does."
+    _append_metric_group_summary_sections(
+        lines,
+        scenario_dir,
+        assets["metric_groups"],
+        weighted=True,
     )
-    lines.append(rf"\input{{{nav_table}}}")
-    lines.append("")
-    lines.append(r"\section{Social Interaction Summary}")
-    lines.append(
-        r"We apply the same success-aware penalty scheme to social compliance "
-        r"metrics so poor or inconsistent behaviour is reflected even when "
-        r"outright failures are rare."
-    )
-    lines.append(rf"\input{{{social_table}}}")
-    lines.append("")
-    lines.append(r"\section{Success Rate and Proxemics Overview}")
-    lines.append(
-        r"These plots summarise the raw outcome frequencies and proxemic intrusions "
-        r"so the ENC/EPU tables above can be interpreted in the context of absolute "
-        r"success behaviour."
-    )
-    lines.append(r"\begin{figure}[htbp]")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=\linewidth]{{{success_plot}}}")
-    lines.append(
-        r"    \caption{Success rate histogram for each navigator across benchmark "
-        r"environments.}"
-    )
-    lines.append(r"    \label{fig:success_rate_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-    lines.append(r"\begin{figure}[htbp]")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=\linewidth]{{{proxemic_plot}}}")
-    lines.append(
-        r"    \caption{Distribution of proxemic intrusions per navigator; "
-        r"consistent colour ordering matches the success-rate plot.}"
-    )
-    lines.append(r"    \label{fig:proxemics_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
 
-    lines.append(r"\section{Metrics Plots}")
-    lines.append("")
-    lines.append(r"\subsection{Navigation Metrics}")
-    lines.append("")
-    lines.append(
-        r"We visualise the distribution of navigation metrics across benchmark "
-        r"environments to illustrate how each navigator performs in different "
-        r"scenarios."
-    )
-    lines.append("")
+    success_plot = assets.get("success_plot")
+    proxemic_plot = assets.get("proxemic_plot")
+    if success_plot or proxemic_plot:
+        lines.append(r"\section{Success Rate and Proxemics Overview}")
+        lines.append(
+            r"These plots summarise the raw outcome frequencies and proxemic intrusions so the weighted tables can be interpreted in the context of absolute success behaviour."
+        )
+        lines.append("")
+    if success_plot:
+        lines.append(r"\begin{figure}[htbp]")
+        lines.append(r"    \centering")
+        lines.append(
+            rf"    \includegraphics[width=\linewidth]{{{_relative(success_plot, scenario_dir)}}}"
+        )
+        lines.append(
+            r"    \caption{Success rate histogram for each navigator across benchmark environments.}"
+        )
+        lines.append(r"    \label{fig:success_rate_by_algorithm}")
+        lines.append(r"\end{figure}")
+        lines.append("")
+    if proxemic_plot:
+        lines.append(r"\begin{figure}[htbp]")
+        lines.append(r"    \centering")
+        lines.append(
+            rf"    \includegraphics[width=\linewidth]{{{_relative(proxemic_plot, scenario_dir)}}}"
+        )
+        lines.append(
+            r"    \caption{Distribution of proxemic intrusions per navigator; consistent colour ordering matches the success-rate plot.}"
+        )
+        lines.append(r"    \label{fig:proxemics_by_algorithm}")
+        lines.append(r"\end{figure}")
+        lines.append("")
 
-    lines.append(r"\begin{figure}[htbp]")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=\textwidth]{{{nav_box_plot}}}")
-    lines.append(
-        r"    \caption{Boxplots of navigation metrics by algorithm across "
-        r"benchmark environments.}"
+    _append_metric_group_plot_sections(
+        lines,
+        scenario_dir,
+        assets["metric_groups"],
+        width=r"\textwidth",
+        placement="htbp",
     )
-    lines.append(r"    \label{fig:metrics_nav_boxplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-    lines.append(r"\begin{figure}[htbp]")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=\textwidth]{{{nav_violin_plot}}}")
-    lines.append(
-        r"    \caption{Violin plots of navigation metrics by algorithm across "
-        r"benchmark environments.}"
-    )
-    lines.append(r"    \label{fig:metrics_nav_violinplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-
-    lines.append(r"\subsection{Social Metrics}")
-    lines.append("")
-    lines.append(
-        r"We visualise the distribution of social metrics across benchmark "
-        r"environments to illustrate how each navigator performs in different "
-        r"scenarios."
-    )
-    lines.append("")
-
-    lines.append(r"\begin{figure}[htbp]")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=\textwidth]{{{social_box_plot}}}")
-    lines.append(
-        r"    \caption{Boxplots of social metrics by algorithm across benchmark "
-        r"environments.}"
-    )
-    lines.append(r"    \label{fig:metrics_social_boxplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
-    lines.append(r"\begin{figure}[htbp]")
-    lines.append(r"    \centering")
-    lines.append(rf"    \includegraphics[width=\textwidth]{{{social_violin_plot}}}")
-    lines.append(
-        r"    \caption{Violin plots of social metrics by algorithm across benchmark "
-        r"environments.}"
-    )
-    lines.append(r"    \label{fig:metrics_social_violinplots_by_algorithm}")
-    lines.append(r"\end{figure}")
-    lines.append("")
 
     interval_include = include_paths.get("interval")
     if interval_include:
@@ -466,126 +579,91 @@ def _build_weighted_document(
     lines.append(r"\end{document}")
     lines.append("")
     return "\n".join(lines)
-
-
-def _collect_assets(scenario_dir: Path) -> Dict[str, Any]:
+def _collect_assets(
+    scenario_dir: Path,
+    *,
+    metric_group_keys: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
     tables = scenario_dir / "tables"
     plots = scenario_dir / "plots"
     scenario_name = scenario_dir.name
 
-    nav_table = _require_asset(
-        _find_first_existing(
+    metric_groups: List[Dict[str, Any]] = []
+    for group_key in _build_metric_group_order(
+        tables,
+        plots,
+        preferred_keys=metric_group_keys,
+    ):
+        summary_table = _find_first_existing(
             tables,
             [
-                "metrics_nav_summary_by_navigator.tex",
-                "metrics_nav_summary_by_algorithm.tex",
+                f"{group_key}_summary_by_navigator.tex",
+                f"{group_key}_summary_by_algorithm.tex",
             ],
-        ),
-        "navigation summary table",
-        scenario_name,
-    )
-    social_table = _require_asset(
-        _find_first_existing(
+        )
+        weighted_table = _find_first_existing(
             tables,
             [
-                "metrics_social_summary_by_navigator.tex",
-                "metrics_social_summary_by_algorithm.tex",
+                f"{group_key}_weighted_summary_by_navigator.tex",
+                f"{group_key}_weighted_summary_by_algorithm.tex",
             ],
-        ),
-        "social summary table",
-        scenario_name,
-    )
-    success_plot = _require_asset(
-        _find_first_existing(
-            plots,
-            ["success_rate_by_navigator.png", "success_rate_by_algorithm.png"],
-        ),
-        "success rate figure",
-        scenario_name,
-    )
-    nav_box_plot = _require_asset(
-        _find_first_existing(
+        )
+        box_plots = _find_existing_or_paginated(
             plots,
             [
-                "metrics_nav_boxplots_by_navigator.png",
-                "metrics_nav_boxplots_by_algorithm.png",
+                f"{group_key}_boxplots_by_navigator.png",
+                f"{group_key}_boxplots_by_algorithm.png",
             ],
-        ),
-        "navigation boxplot figure",
-        scenario_name,
-    )
-    nav_violin_plot = _require_asset(
-        _find_first_existing(
+        )
+        violin_plots = _find_existing_or_paginated(
             plots,
             [
-                "metrics_nav_violinplots_by_navigator.png",
-                "metrics_nav_violinplots_by_algorithm.png",
+                f"{group_key}_violinplots_by_navigator.png",
+                f"{group_key}_violinplots_by_algorithm.png",
             ],
-        ),
-        "navigation violin plot figure",
-        scenario_name,
-    )
-    social_box_plot = _require_asset(
-        _find_first_existing(
-            plots,
-            [
-                "metrics_social_boxplots_by_navigator.png",
-                "metrics_social_boxplots_by_algorithm.png",
-            ],
-        ),
-        "social boxplot figure",
-        scenario_name,
-    )
-    social_violin_plot = _require_asset(
-        _find_first_existing(
-            plots,
-            [
-                "metrics_social_violinplots_by_navigator.png",
-                "metrics_social_violinplots_by_algorithm.png",
-            ],
-        ),
-        "social violin plot figure",
-        scenario_name,
-    )
-    proxemic_plot = _require_asset(
-        _find_first_existing(plots, ["proxemic_distances_intrusions.png"]),
-        "proxemic intrusion figure",
-        scenario_name,
-    )
+        )
+        if not any([summary_table, weighted_table, box_plots, violin_plots]):
+            continue
+        metric_groups.append(
+            {
+                "key": group_key,
+                "title": _humanize_group_key(group_key),
+                "summary_table": summary_table,
+                "weighted_table": weighted_table,
+                "box_plots": box_plots,
+                "violin_plots": violin_plots,
+            }
+        )
 
-    nav_weighted = _find_first_existing(
-        tables,
-        [
-            "metrics_nav_weighted_summary_by_navigator.tex",
-            "metrics_nav_weighted_summary_by_algorithm.tex",
-        ],
+    success_plot = _find_first_existing(
+        plots,
+        ["success_rate_by_navigator.png", "success_rate_by_algorithm.png"],
     )
-    social_weighted = _find_first_existing(
-        tables,
-        [
-            "metrics_social_weighted_summary_by_navigator.tex",
-            "metrics_social_weighted_summary_by_algorithm.tex",
-        ],
-    )
+    proxemic_plot = _find_first_existing(plots, ["proxemic_distances_intrusions.png"])
 
     assets: Dict[str, Any] = {
-        "nav_table": nav_table,
-        "social_table": social_table,
+        "metric_groups": metric_groups,
         "success_plot": success_plot,
-        "nav_box_plot": nav_box_plot,
-        "nav_violin_plot": nav_violin_plot,
-        "social_box_plot": social_box_plot,
-        "social_violin_plot": social_violin_plot,
         "proxemic_plot": proxemic_plot,
     }
-
-    if nav_weighted and social_weighted:
-        assets["nav_weighted"] = nav_weighted
-        assets["social_weighted"] = social_weighted
 
     anova_assets = _gather_anova_assets(tables, plots)
     if anova_assets:
         assets["anova"] = anova_assets
+
+    has_reportable_assets = any(
+        [
+            metric_groups,
+            success_plot is not None,
+            proxemic_plot is not None,
+            anova_assets is not None,
+        ]
+    )
+    if not has_reportable_assets:
+        raise MissingAssetError(
+            f"Missing reportable tables or plots for scenario '{scenario_name}'. "
+            "Run benchmark_plots to regenerate the required tables or plots."
+        )
 
     return assets
 
@@ -648,6 +726,7 @@ def generate_reports_for_scenario(
     *,
     overwrite: bool = False,
     reports_root: Optional[Path] = None,
+    metric_group_keys: Optional[Sequence[str]] = None,
     logger: Logger = None,
     announce: Optional[str] = None,
 ) -> List[Path]:
@@ -660,7 +739,10 @@ def generate_reports_for_scenario(
     if message:
         _emit(logger, message)
 
-    assets = _collect_assets(scenario_dir)
+    assets = _collect_assets(
+        scenario_dir,
+        metric_group_keys=metric_group_keys,
+    )
     created: List[Path] = []
     filename_prefix = f"{report_prefix}_{scenario_dir.name}"
 
@@ -670,7 +752,7 @@ def generate_reports_for_scenario(
     created.append(base_tex)
     _emit(logger, f"  wrote {_format_relative(base_tex, reports_root)}")
 
-    if "nav_weighted" in assets and "social_weighted" in assets:
+    if any(group["weighted_table"] for group in assets["metric_groups"]):
         include_paths = _build_include_paths(scenario_dir)
         weighted_tex = scenario_dir / f"{filename_prefix}_weighted.tex"
         weighted_document = _build_weighted_document(

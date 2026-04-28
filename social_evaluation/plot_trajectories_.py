@@ -10,7 +10,7 @@ import subprocess
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.animation import ArtistAnimation, PillowWriter
+from matplotlib.animation import ArtistAnimation, PillowWriter, FFMpegWriter
 from typing import Dict, Any, List, Tuple, Optional
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -22,6 +22,130 @@ from tqdm import tqdm
 import argcomplete, argparse
 import yaml
 import social_evaluation
+
+
+def normalize_animation_formats(
+    requested_formats: Optional[List[str] | str],
+    save_animations: bool,
+) -> List[str]:
+    """Return the unique animation formats that should be written."""
+    if requested_formats is None:
+        return ["gif"] if save_animations else []
+
+    if isinstance(requested_formats, str):
+        formats_to_process = [requested_formats]
+    elif isinstance(requested_formats, (list, tuple, set)):
+        formats_to_process = list(requested_formats)
+    else:
+        raise TypeError(
+            "save_animation_formats must be a string or a list of strings."
+        )
+
+    normalized_formats: List[str] = []
+    for animation_format in formats_to_process:
+        normalized_format = animation_format.strip().lower()
+        if not normalized_format:
+            continue
+        if normalized_format not in {"gif", "webm"}:
+            raise ValueError(
+                f"Unsupported animation format '{animation_format}'. "
+                "Supported formats are 'gif' and 'webm'."
+            )
+        if normalized_format not in normalized_formats:
+            normalized_formats.append(normalized_format)
+
+    if not normalized_formats and save_animations:
+        normalized_formats.append("gif")
+
+    return normalized_formats
+
+
+def save_animation_output(
+    animation: ArtistAnimation,
+    output_path: Path,
+    fps: int,
+    preferred_writer: Optional[str] = "pillow",
+) -> None:
+    """Save a single animation file using a writer that matches the suffix."""
+    if animation is None:
+        return
+
+    output_format = output_path.suffix.lower().lstrip(".")
+    if output_format == "gif":
+        try:
+            animation.save(
+                output_path,
+                writer=preferred_writer if preferred_writer == "pillow" else "pillow",
+                fps=fps,
+                savefig_kwargs={"transparent": True},
+            )
+            return
+        except (
+            RuntimeError,
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            ValueError,
+        ) as exc:
+            print(
+                f"Falling back to PillowWriter for {output_path} because "
+                f"'{preferred_writer}' failed: {exc}"
+            )
+            animation.save(
+                output_path,
+                writer=PillowWriter(fps=fps),
+                savefig_kwargs={"transparent": True},
+            )
+            return
+
+    if output_format == "webm":
+        try:
+            animation.save(
+                output_path,
+                writer=preferred_writer if preferred_writer == "ffmpeg" else "ffmpeg",
+                fps=fps,
+                savefig_kwargs={"transparent": True},
+            )
+            return
+        except (
+            RuntimeError,
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            ValueError,
+        ) as exc:
+            print(
+                f"Falling back to FFMpegWriter for {output_path} because "
+                f"'{preferred_writer}' failed: {exc}"
+            )
+            animation.save(
+                output_path,
+                writer=FFMpegWriter(fps=fps, codec="libvpx-vp9", bitrate=1800),
+                savefig_kwargs={"transparent": True},
+            )
+            return
+
+    raise ValueError(
+        f"Unsupported animation output format '{output_format}' for {output_path}."
+    )
+
+
+def save_animation_outputs(
+    animation: ArtistAnimation,
+    output_path: Path,
+    fps: int,
+    output_formats: List[str],
+    preferred_writer: Optional[str] = "pillow",
+) -> None:
+    """Save an animation to one or more requested output formats."""
+    if animation is None:
+        return
+
+    for output_format in output_formats:
+        save_animation_output(
+            animation,
+            output_path.with_suffix(f".{output_format}"),
+            fps=fps,
+            preferred_writer=preferred_writer,
+        )
 
 
 def plot_experiment_aggregate(
@@ -223,31 +347,12 @@ def save_animation_with_fallback(
     fps: int,
     preferred_writer: Optional[str] = "pillow",
 ) -> None:
-    """Save animation with the preferred writer, falling back to Pillow if necessary."""
-    if animation is None:
-        return
-    if preferred_writer:
-        try:
-            animation.save(
-                output_path,
-                writer=preferred_writer,
-                fps=fps,
-                savefig_kwargs={"transparent": True},
-            )
-            return
-        except (
-            RuntimeError,
-            subprocess.CalledProcessError,
-            FileNotFoundError,
-            ValueError,
-        ) as exc:
-            print(
-                f"Falling back to PillowWriter for {output_path} because "
-                f"'{preferred_writer}' failed: {exc}"
-            )
-    pillow_writer = PillowWriter(fps=fps)
-    animation.save(
-        output_path, writer=pillow_writer, savefig_kwargs={"transparent": True}
+    """Backwards-compatible wrapper for saving a single animation file."""
+    save_animation_output(
+        animation,
+        output_path,
+        fps=fps,
+        preferred_writer=preferred_writer,
     )
 
 
@@ -338,6 +443,19 @@ def main():
     time_freq = config.get("time_freq", 0.1)
     use_odometry = config.get("use_odometry", False)
     save_gif = config.get("save_gif", True)
+    save_webm = config.get("save_webm", False)
+    requested_animation_formats = config.get("save_animation_formats")
+    if requested_animation_formats is None:
+        requested_animation_formats = []
+        if save_gif:
+            requested_animation_formats.append("gif")
+        if save_webm:
+            requested_animation_formats.append("webm")
+    save_animation_formats = normalize_animation_formats(
+        requested_animation_formats,
+        save_gif or save_webm,
+    )
+    save_animation = bool(save_animation_formats)
     save_fig = config.get("save_fig", True)
     fontsize = config.get("fontsize", 16)
     image_width_multi = config.get("image_width_multi", 1.0)
@@ -401,7 +519,7 @@ def main():
                 ax,
                 fig,
                 time_freq=time_freq,
-                animate=save_gif,
+                animate=save_animation,
                 colorbar=plot_colorbar,
                 image_width_multi=image_width_multi,
                 fontsize=fontsize,
@@ -414,20 +532,21 @@ def main():
             if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
                 os.makedirs(args.output_dir.joinpath(experiment_name, algorithm_name))
 
-            # save the animation as gif
-            if save_gif:
+            # save the animation in the requested formats
+            if save_animation:
                 if ani is None:
                     print(
-                        f"Skipping GIF for {experiment_name}/{algorithm_name}/{exp_id}: no frames."
+                        f"Skipping animation for {experiment_name}/{algorithm_name}/{exp_id}: no frames."
                     )
                 else:
-                    output_gif = args.output_dir.joinpath(
-                        experiment_name, algorithm_name, f"experiment_{exp_id}.gif"
+                    output_animation = args.output_dir.joinpath(
+                        experiment_name, algorithm_name, f"experiment_{exp_id}"
                     )
-                    save_animation_with_fallback(
+                    save_animation_outputs(
                         ani,
-                        output_gif,
+                        output_animation,
                         fps=int(1 / time_freq),
+                        output_formats=save_animation_formats,
                         preferred_writer=animation_writer,
                     )
             # save the last frame of the animation
@@ -461,28 +580,29 @@ def main():
                     experiment_algorithm[exp],
                     ax,
                     fig,
-                    animate=save_gif,
+                    animate=save_animation,
                     time_freq=time_freq,
                     colorbar=plot_colorbar,
                     use_odometry=use_odometry,
                 )
 
-                # save the animation as gif
-                if save_gif:
+                # save the animation in the requested formats
+                if save_animation:
                     if ani is None:
                         print(
-                            f"Skipping aggregated GIF for {experiment_name}/{algorithm_name}: no frames."
+                            f"Skipping aggregated animation for {experiment_name}/{algorithm_name}: no frames."
                         )
                     else:
-                        aggregated_gif = args.output_dir.joinpath(
+                        aggregated_animation = args.output_dir.joinpath(
                             experiment_name,
                             algorithm_name,
-                            f"aggregated_trajectories.gif",
+                            f"aggregated_trajectories",
                         )
-                        save_animation_with_fallback(
+                        save_animation_outputs(
                             ani,
-                            aggregated_gif,
+                            aggregated_animation,
                             fps=int(1 / time_freq),
+                            output_formats=save_animation_formats,
                             preferred_writer=animation_writer,
                         )
                 # save the last frame of the animation

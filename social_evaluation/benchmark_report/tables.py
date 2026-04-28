@@ -71,6 +71,12 @@ class TableExportMixin:
                 }
             )
             grouped_df = grouped_df[table.columns]
+            pair_cols = [r"\textbf{Experiment}", r"\textbf{Navigator}"]
+            existing = set(table[pair_cols].itertuples(index=False, name=None))
+            new_rows = [pair not in existing for pair in grouped_df[pair_cols].itertuples(index=False, name=None)]
+            if not any(new_rows):
+                return table
+            grouped_df = grouped_df.loc[new_rows]
             return pd.concat([table, grouped_df], ignore_index=True, sort=False)
 
         mean_table = summary["mean"].rename(
@@ -343,15 +349,23 @@ class TableExportMixin:
                 "w",
                 encoding="utf-8",
             ) as handle:
-                handle.write(
-                    sub_table.to_latex(
+                try:
+                    latex_success = sub_table.to_latex(
                         multicolumn=True,
                         multirow=True,
                         bold_rows=True,
                         float_format="%.0f",
                         na_rep="0",
                     )
-                )
+                except KeyError:
+                    latex_success = sub_table.to_latex(
+                        multicolumn=True,
+                        multirow=True,
+                        bold_rows=False,
+                        float_format="%.0f",
+                        na_rep="0",
+                    )
+                handle.write(latex_success)
 
 
 __all__ = ["TableExportMixin"]

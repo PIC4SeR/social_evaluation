@@ -572,6 +572,7 @@ def _generate_tex_reports(
             report_prefix=report_prefix,
             overwrite=overwrite,
             reports_root=scenario_dir.parent,
+            metric_group_keys=list(report.config.metric_groups.keys()),
             logger=_log,
         )
     except MissingAssetError as exc:
@@ -695,9 +696,13 @@ def _build_benchmark_config(
         )
 
     metric_groups_spec = benchmark_cfg.get("metric_groups", {})
-    formatted_groups, metric_dirs, discard_overrides = format_metric_groups(
-        metric_groups_spec
-    )
+    (
+        formatted_groups,
+        metric_dirs,
+        discard_overrides,
+        metric_group_aggregates,
+        metric_group_plot_metrics,
+    ) = format_metric_groups(metric_groups_spec)
 
     intrusion_spec = benchmark_cfg.get("intrusion_labels", {})
     intrusion_labels_formatted, intrusion_discard_overrides = format_intrusion_labels(
@@ -794,6 +799,32 @@ def _build_benchmark_config(
 
     scenario_episode_groups = _normalize_episode_groups(episode_groups_value)
 
+    for aggregate_spec in metric_group_aggregates.values():
+        raw_exclusions = aggregate_spec.get("exclude_metrics_by_experiment")
+        if not isinstance(raw_exclusions, Mapping):
+            continue
+        normalized_exclusions: Dict[str, List[str]] = {}
+        for raw_experiment_name, raw_metric_keys in raw_exclusions.items():
+            experiment_name = str(raw_experiment_name)
+            normalized_experiment_name = scenario_episode_names.get(
+                experiment_name, experiment_name
+            )
+            if normalized_experiment_name in scenario_episode_groups:
+                target_name = normalized_experiment_name
+            elif experiment_name in scenario_episode_groups:
+                target_name = experiment_name
+            else:
+                target_name = normalized_experiment_name
+            if isinstance(raw_metric_keys, (str, bytes)):
+                metric_keys = [str(raw_metric_keys)]
+            elif isinstance(raw_metric_keys, Iterable):
+                metric_keys = [str(metric_key) for metric_key in raw_metric_keys]
+            else:
+                continue
+            if metric_keys:
+                normalized_exclusions[target_name] = metric_keys
+        aggregate_spec["exclude_metrics_by_experiment"] = normalized_exclusions
+
     discard_failed_default = _resolve_bool_config(
         benchmark_cfg.get("discard_failed_metrics"), True
     )
@@ -836,6 +867,8 @@ def _build_benchmark_config(
         discard_failed_metrics=discard_failed_metrics,
         quality_result_cmap=str(benchmark_cfg.get("intrusion_cmap", "Paired")),
         metric_discard_failed={**discard_overrides, **intrusion_discard_overrides},
+        metric_group_aggregates=metric_group_aggregates,
+        metric_group_plot_metrics=metric_group_plot_metrics,
     )
     return config
 
@@ -913,6 +946,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             config.output_dir.mkdir(parents=True, exist_ok=True)
         _log(f"Initialising benchmark report for scenario '{config.scenario}'")
         report = BenchmarkReport(config=config)
+        for message in getattr(report, "aggregate_metric_messages", []):
+            _log(message)
+        for warning in getattr(report, "aggregate_metric_warnings", []):
+            _log(warning)
 
         _run_exports(report, outputs_cfg)
         _run_plots(report, outputs_cfg, base_dir)

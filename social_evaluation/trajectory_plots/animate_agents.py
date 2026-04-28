@@ -15,6 +15,19 @@ from matplotlib.figure import Figure
 from matplotlib.artist import Artist
 
 
+def _prepare_trajectory_time_index(df_trajectories: pd.DataFrame) -> pd.DataFrame:
+    """Return a trajectory frame with a sorted, unique datetime index."""
+
+    df_trajectories_t = df_trajectories.copy()
+    df_trajectories_t["time"] = pd.to_datetime(df_trajectories_t["time"], unit="s")
+    df_trajectories_t.sort_values("time", kind="stable", inplace=True)
+    df_trajectories_t = df_trajectories_t[
+        ~df_trajectories_t["time"].duplicated(keep="first")
+    ]
+    df_trajectories_t.set_index("time", inplace=True)
+    return df_trajectories_t
+
+
 def smooth_angle_series(values: np.ndarray, sigma: float = 2) -> np.ndarray:
     """Smooth angular data without introducing wraparound spins."""
     if values.size == 0:
@@ -190,13 +203,7 @@ def animate_trajectories(
     artists = []
     # Create the animation
     ani = None
-    df_trajectories_t = df_trajectories.copy()
-    df_trajectories_t["time"] = pd.to_datetime(df_trajectories["time"], unit="s")
-    df_trajectories_t = df_trajectories_t[
-        ~df_trajectories_t["time"].duplicated(keep="first")
-    ]
-
-    df_trajectories_t.set_index("time", inplace=True)
+    df_trajectories_t = _prepare_trajectory_time_index(df_trajectories)
     # Resample the data to the time frequency
 
     df_trajectories_rs = df_trajectories_t.asfreq(
@@ -420,9 +427,7 @@ def animate_trajectories_aggregated(
 
     df_trajectories_rs_list = []
     for df_trajectories in df_trajectories_list:
-        df_trajectories_t = df_trajectories.copy()
-        df_trajectories_t["time"] = pd.to_datetime(df_trajectories["time"], unit="s")
-        df_trajectories_t.set_index("time", inplace=True)
+        df_trajectories_t = _prepare_trajectory_time_index(df_trajectories)
         # Resample the data to the time frequency
 
         df_trajectories_rs = df_trajectories_t.asfreq(

@@ -1,0 +1,175 @@
+benchmark:
+  root_dir: /workspaces/hunavsim_devcontainer/results/paper_report/experiments
+  scenario:
+    - name: episode18_annotated
+      episode_groups:
+        Open Crowded:
+          - episode_18
+    # - name: mixed_included
+    #   episode_groups:
+    #     Mixed:
+    #       - episode_1
+    #       - episode_2
+    #       - episode_3
+    #       - episode_4
+    #       - episode_5
+    #       - episode_6          
+    #     Open Space:
+    #       - episode_13
+    #       - episode_17
+    #       - episode_18
+    #     Overall:
+    #       - episode_1
+    #       - episode_2
+    #       - episode_3
+    #       - episode_4
+    #       - episode_5
+    #       - episode_6
+    #       - episode_13
+    #       - episode_17
+    #       - episode_18
+  navigators:
+    - DWB_social_costmap
+    - MPPI_social_costmap
+    - ORCA
+    - PURE_SFM
+    - SARL
+    - MPC_base_no_costs
+    - MPC_social_motion
+  navigator_names:
+    DWB_social_costmap: '$\mathrm{DWB_{GSC}}$'
+    MPPI_social_costmap: '$\mathrm{MPPI_{GSC}}$'
+    ORCA: 'ORCA'
+    PURE_SFM: 'Pure SFM'
+    SARL: 'SARL'
+    MPC_base_no_costs: 'NMPC'
+    MPC_social_motion: 'SFM-NMPC'
+  
+  metric_groups:
+    metrics_nav:
+      avg_robot_linear_speed:
+        name: '\\textbf{ARV (m/s)}'
+        direction: UP
+    metrics_social:
+      path_length:
+        name: '\\textbf{PL (m)}'
+        direction: DOWN
+        discard_failed: true
+      time_to_reach_goal:
+        name: '\\textbf{TTG (s)}'
+        direction: DOWN
+        discard_failed: true
+      social_work_per_second:
+        name: '$\\mathbf{SW_{step}}$'
+        direction: DOWN
+        discard_failed: false
+      avg_distance_to_closest_person:
+        name: '\\textbf{AMD (m)}'
+        direction: UP
+        discard_failed: false
+  intrusion_labels:
+    intimate_space_intrusions:
+      name: Intimate Space Intrusions
+      discard_failed: false
+    personal_space_intrusions:
+      name: Personal Space Intrusions
+      discard_failed: false
+    social_space_intrusions:
+      name: Social Space Intrusions
+      discard_failed: false
+    public_space_intrusions:
+      name: Public Space Intrusions
+      discard_failed: false
+  alpha: 1.0
+  use_tex: true
+  quality_result_cmap: 'Paired'
+
+
+outputs:
+  export_success_rate_tables: true
+  export_metric_tables:
+    enabled: true
+    scale: 0.71
+    show_std: false
+  plot_success_rate: false
+  plot_metric_distributions:
+    - kind: box
+      cmap_name: Paired
+      n_rows: 1
+      n_cols: 2
+      show_episode_ylabel: false
+      annotate_stats: true
+      stat_annotation_mode: baseline_stars  # "brackets" or "baseline_stars"
+      stat_baseline: 'SFM-NMPC'             # reference algorithm for stars
+      stat_use_anova: true
+      highlight_baseline: true               # bold legend label + "Ours" marker
+      highlight_baseline_label: 'Ours'       # label shown above baseline box
+      stat_alpha: 0.05
+      stat_font_size: 30
+      font_sizes:
+        title: 40
+        axis_label: 40
+        tick_label: 40
+        legend: 40
+        legend_ncol: 4
+    - kind: violin
+      cmap_name: Paired
+      n_rows: 1
+      n_cols: 2
+      show_episode_ylabel: false
+      annotate_stats: true
+      stat_annotation_mode: baseline_stars
+      stat_baseline: 'SFM-NMPC'
+      highlight_baseline: true
+      highlight_baseline_label: 'Ours'
+      stat_use_anova: true
+      stat_alpha: 0.05
+      stat_font_size: 30
+      font_sizes:
+        title: 40
+        axis_label: 40
+        tick_label: 40
+        legend: 40
+        legend_ncol: 4 
+  plot_proxemic_intrusions:
+    enabled: true
+    n_rows: 1
+    font_sizes:
+      title: 50
+      axis_label: 60
+      tick_label: 60
+      xtick_label: 50
+      legend: 70
+      sup_label: 70
+      legend_ncol: 2
+  
+  export_anova_analysis:
+    enabled: false
+    alpha: 0.05        # optional
+    min_group_size: 2  # optional
+    metrics: 
+      - time_to_reach_goal
+      - social_work_per_second
+      - avg_distance_to_closest_person
+      - path_length
+      - avg_robot_linear_speed
+      
+    output_subdir: "custom_stats"  # optional folder under tables/
+  plot_pairwise_pvalue_heatmap:
+    enabled: false
+    metrics: 
+      - time_to_reach_goal
+      - social_work_per_second
+      - avg_distance_to_closest_person
+      - path_length
+      - avg_robot_linear_speed
+    cmap: rocket
+    label_size: 14
+    title_size: 18
+    colorbar_label_size: 14
+    annot_font_size: 12
+    # fmt: ".2f"
+  generate_latex_reports:
+    enabled: true
+    prefix: paper_report
+    overwrite: true

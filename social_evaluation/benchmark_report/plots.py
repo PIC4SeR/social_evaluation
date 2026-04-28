@@ -53,6 +53,32 @@ class PlottingMixin:
     _format_text: _BaseProtocol._format_text  # type: ignore[assignment]
     _ensure_parent_directory: _BaseProtocol._ensure_parent_directory  # type: ignore[assignment]
 
+    def _prepare_distribution_plot_data(
+        self,
+        data: pd.DataFrame,
+        metric_key: str,
+    ) -> pd.DataFrame:
+        """Return only rows that can produce a drawable distribution plot."""
+
+        if data.empty or metric_key not in data.columns:
+            return data.iloc[0:0].copy()
+        plot_data = data.loc[data["algorithm"].isin(self.ordered_navigators)].copy()
+        if plot_data.empty:
+            return plot_data
+        metric_values = pd.to_numeric(plot_data[metric_key], errors="coerce")
+        plot_data = plot_data.loc[metric_values.notna()].copy()
+        if plot_data.empty:
+            return plot_data
+        plot_data[metric_key] = metric_values.loc[plot_data.index]
+        return plot_data
+
+    @staticmethod
+    def _apply_box_alpha(ax: Any, alpha: float) -> None:
+        """Apply alpha to box patches after seaborn renders them."""
+
+        for patch in ax.patches:
+            patch.set_alpha(alpha)
+
     # ------------------------------------------------------------------
     # High-level plotting helpers
     # ------------------------------------------------------------------
@@ -372,9 +398,6 @@ class PlottingMixin:
             )
             for label in palette
         ]
-        navigator_xpos = {
-            label: idx for idx, label in enumerate(self.ordered_navigators)
-        }
         # Pre-compute ANOVA/Tukey pairwise results when annotation is
         # requested and `stat_use_anova` is True.
         _pairwise_df: Optional[pd.DataFrame] = None
@@ -400,8 +423,12 @@ class PlottingMixin:
         # Build per-metric, per-environment caches so each metric uses
         # its own filtered source (success-only vs all results).
         all_metric_keys: list[str] = []
-        for metric_labels in self.config.metric_groups.values():
-            all_metric_keys.extend(metric_labels.keys())
+        for group_key, metric_labels in self.config.metric_groups.items():
+            all_metric_keys.extend(
+                self.config.metric_group_plot_metrics.get(
+                    group_key, list(metric_labels.keys())
+                )
+            )
         for metric_key in all_metric_keys:
             source = self.results_for_metric(metric_key)
             cache: Dict[str, pd.DataFrame] = {}
@@ -435,8 +462,12 @@ class PlottingMixin:
         ]
 
         for group_key, metric_labels in self.config.metric_groups.items():
-            metric_keys = list(metric_labels.keys())
+            metric_keys = self.config.metric_group_plot_metrics.get(
+                group_key, list(metric_labels.keys())
+            )
             total_metrics = len(metric_keys)
+            if total_metrics == 0:
+                continue
             # Determine actual columns per grid row
             cols = n_cols if n_cols > 0 else total_metrics
             # Number of grid rows each episode occupies
@@ -448,8 +479,8 @@ class PlottingMixin:
                 fig, axes = plt.subplots(
                     grid_rows,
                     cols,
-                    figsize=(cols * 12, grid_rows * 10),
-                    sharex=True,
+                    figsize=(cols * 15, grid_rows * 15),
+                    sharex=False,
                 )
                 axes = np.array(axes).reshape(grid_rows, cols)
                 for ep_idx, environment in enumerate(page_experiments):
@@ -461,27 +492,38 @@ class PlottingMixin:
                         local_col = m_idx % cols
                         grid_row = ep_idx * metric_rows_per_ep + local_row
                         target_ax = axes[grid_row, local_col]
-                        if env_metrics.empty:
+                        plot_data = self._prepare_distribution_plot_data(
+                            env_metrics, metric_key
+                        )
+                        if plot_data.empty:
+                            target_ax.axis("off")
+                            continue
+                        plot_order = [
+                            nav
+                            for nav in self.ordered_navigators
+                            if nav in set(plot_data["algorithm"].unique())
+                        ]
+                        if not plot_order:
                             target_ax.axis("off")
                             continue
                         if kind == "box":
                             sns.boxplot(
-                                data=env_metrics,
+                                data=plot_data,
                                 x="algorithm",
-                                order=self.ordered_navigators,
+                                order=plot_order,
                                 y=metric_key,
                                 hue="algorithm",
-                                hue_order=self.ordered_navigators,
+                                hue_order=plot_order,
                                 palette=cast(Any, palette),
                                 ax=target_ax,
                                 showfliers=False,
-                                boxprops=dict(alpha=self.config.alpha),
                             )
+                            self._apply_box_alpha(target_ax, self.config.alpha)
                             if connect_medians:
                                 sns.pointplot(
-                                    data=env_metrics,
+                                    data=plot_data,
                                     x="algorithm",
-                                    order=self.ordered_navigators,
+                                    order=plot_order,
                                     y=metric_key,
                                     estimator=np.median,
                                     errorbar=None,
@@ -496,12 +538,12 @@ class PlottingMixin:
 
                         else:
                             sns.violinplot(
-                                data=env_metrics,
+                                data=plot_data,
                                 x="algorithm",
-                                order=self.ordered_navigators,
+                                order=plot_order,
                                 y=metric_key,
                                 hue="algorithm",
-                                hue_order=self.ordered_navigators,
+                                hue_order=plot_order,
                                 palette=cast(Any, palette),
                                 ax=target_ax,
                             )
@@ -510,10 +552,10 @@ class PlottingMixin:
                             if use_baseline_stars:
                                 cap = self._annotate_baseline_stars(
                                     ax=target_ax,
-                                    data=env_metrics,
+                                    data=plot_data,
                                     x="algorithm",
                                     y=metric_key,
-                                    order=self.ordered_navigators,
+                                    order=plot_order,
                                     baseline=stat_baseline or "",
                                     pairwise_df=_pairwise_df,
                                     anova_summary=_anova_summary,
@@ -533,10 +575,10 @@ class PlottingMixin:
                             else:
                                 self._annotate_subplot(
                                     ax=target_ax,
-                                    data=env_metrics,
+                                    data=plot_data,
                                     x="algorithm",
                                     y=metric_key,
-                                    order=self.ordered_navigators,
+                                    order=plot_order,
                                     kind=kind,
                                     palette=palette,
                                     pairwise_df=_pairwise_df,
@@ -565,6 +607,7 @@ class PlottingMixin:
                         else:
                             target_ax.set_ylabel("")
                         target_ax.set_xlabel("")
+                        target_ax.set_xticks([])
                         target_ax.set_xticklabels([])
                         legend = target_ax.get_legend()
                         if legend is not None:
@@ -700,6 +743,8 @@ class PlottingMixin:
                 drop=True
             )
             summary = pd.concat([summary, group_summary], ignore_index=True, sort=False)
+        pair_cols = [r"\textbf{Experiment}", r"\textbf{Navigator}"]
+        summary = summary.drop_duplicates(subset=pair_cols, keep="first")
         intrusion_columns: List[str] = [
             str(label) for label in self.config.intrusion_labels.values()
         ]
@@ -714,7 +759,7 @@ class PlottingMixin:
         fig, axes = plt.subplots(
             rows,
             cols,
-            figsize=(cols * 12, rows * 17),
+            figsize=(cols * 15, rows * 15),
             sharey=True,
             sharex=True,
         )
@@ -770,7 +815,7 @@ class PlottingMixin:
         fig.supylabel(
             self._format_text(r"Intrusion (Time \%)"),
             fontsize=fs["sup_label"],
-            y=0.65,
+            y=0.6,
         )
         intrusion_handles: List[Patch] = []
         intrusion_labels_formatted: List[str] = []
@@ -804,7 +849,7 @@ class PlottingMixin:
         legend_h = n_legend_rows_pi * fs["legend"] * pts_to_inches * 1.8 + 0.3
         rect_bottom = min(legend_h / fig_h, 0.35)
         # Left: supylabel
-        sup_w = fs["sup_label"] * pts_to_inches * 1.5
+        sup_w = fs["sup_label"] * pts_to_inches 
         rect_left = min(sup_w / fig_w, 0.08)
         # Top: title
         title_h = fs["title"] * pts_to_inches * 1.5
@@ -1033,7 +1078,6 @@ class PlottingMixin:
             }
             if kind == "box":
                 plot_params["showfliers"] = False
-                plot_params["boxprops"] = dict(alpha=self.config.alpha)
 
             annotator = _Annotator(
                 ax=ax,
@@ -1054,6 +1098,8 @@ class PlottingMixin:
             )
             annotator.set_pvalues(p_values)
             annotator.annotate()
+            if kind == "box":
+                self._apply_box_alpha(ax, self.config.alpha)
 
         else:
             # Let statannotations run the test itself
@@ -1079,7 +1125,6 @@ class PlottingMixin:
             }
             if kind == "box":
                 plot_params["showfliers"] = False
-                plot_params["boxprops"] = dict(alpha=self.config.alpha)
 
             annotator = _Annotator(
                 ax=ax,
@@ -1098,6 +1143,8 @@ class PlottingMixin:
                 comparisons_correction=correction,
             )
             annotator.apply_and_annotate()
+            if kind == "box":
+                self._apply_box_alpha(ax, self.config.alpha)
 
     @staticmethod
     def _layout_params_for_navigators(

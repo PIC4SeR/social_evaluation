@@ -95,6 +95,7 @@ def combine_df_robot_agents(
     df_agents = df_agents.merge(
         combine_df_agents(df_agents_list), on="time", how="outer"
     )
+    df_agents.sort_values("time", kind="stable", inplace=True, ignore_index=True)
     # Remove columns that are entirely NaN (e.g., missing robot velocities)
     df_agents.dropna(axis=1, how="all", inplace=True)
     df_agents.infer_objects(copy=False)
@@ -126,6 +127,7 @@ def combine_df_robot_and_agent(
     df_interaction = df_robot.merge(
         df_agent, on="time", how="outer", suffixes=("_1", "_2")
     )
+    df_interaction.sort_values("time", kind="stable", inplace=True, ignore_index=True)
     df_interaction.infer_objects(copy=False)
     attributes = [
         attribute
@@ -158,6 +160,7 @@ def combine_df_agents(df_agents_list: List[pd.DataFrame]) -> pd.DataFrame:
             on="time",
             how="outer",
         )
+    df_agents.sort_values("time", kind="stable", inplace=True, ignore_index=True)
 
     attributes = [
         attribute
@@ -187,9 +190,14 @@ def align_df_agents_on_time(df_agents_list: List[pd.DataFrame]) -> List[pd.DataF
 
     aligned_agents = []
     for agent_df in df_agents_list:
-        # Set time as index and reindex to all_times
-
-        agent_df = agent_df.set_index("time").reindex(all_times)
+        # Reindex requires a unique index. Some bags can contain repeated
+        # samples at the same timestamp, so collapse those first.
+        agent_df = (
+            agent_df.sort_values("time", kind="stable")
+            .drop_duplicates(subset="time", keep="last")
+            .set_index("time")
+            .reindex(all_times)
+        )
         agent_df.infer_objects(copy=False)
         # interpolate missing values
 
@@ -208,8 +216,6 @@ def align_df_agents_on_time(df_agents_list: List[pd.DataFrame]) -> List[pd.DataF
         agent_df.bfill(inplace=True)
         # reset index and rename the time column
         agent_df = agent_df.reset_index().rename(columns={"index": "time"})
-        # drop duplicate timestamps
-        agent_df = agent_df.drop_duplicates(subset="time")
 
         aligned_agents.append(agent_df)
     return aligned_agents

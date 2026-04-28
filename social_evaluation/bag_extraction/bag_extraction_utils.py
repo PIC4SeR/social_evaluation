@@ -34,9 +34,17 @@ def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) ->
     """
     model_path = base_path + "/" + experiment + "/" + algorithm
     model_path = OSPath(model_path)
+    # Check if the path exists    
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model path {model_path} does not exist")
+    # use experiment_ or scenario_ as prefix depending on the naming convention used in the bags
+    experiment_prefix = "experiment_" if (model_path / f"experiment_{index}").exists() else "scenario_"
     bag_path = os.path.join(
-        model_path, f"experiment_{index}", f"experiment_{index}_0.db3"
+        model_path, f"{experiment_prefix}{index}", f"{experiment_prefix}{index}_0.db3"
     )
+    # Check if the bag file exists
+    if not os.path.isfile(bag_path):
+        raise FileNotFoundError(f"Bag file {bag_path} does not exist")
     return bag_path
 
 

@@ -26,15 +26,29 @@ def export_latex_tabular(
                 for h in header
             ]
 
-    latex_tabular = report_latex.to_latex(
-        column_format=column_format,
-        header=processed_header,
-        float_format=float_format,
-        bold_rows=bold_rows,
-        escape=False,
-        na_rep="-",
-        multicolumn_format="c",
-    )
+    try:
+        latex_tabular = report_latex.to_latex(
+            column_format=column_format,
+            header=processed_header,
+            float_format=float_format,
+            bold_rows=bold_rows,
+            escape=False,
+            na_rep="-",
+            multicolumn_format="c",
+        )
+    except KeyError:
+        if bold_rows:
+            latex_tabular = report_latex.to_latex(
+                column_format=column_format,
+                header=processed_header,
+                float_format=float_format,
+                bold_rows=False,
+                escape=False,
+                na_rep="-",
+                multicolumn_format="c",
+            )
+        else:
+            raise
     # handle multirows
     if multirow:
         latex_tabular = latex_tabular.replace(
@@ -360,7 +374,9 @@ def load_metrics_from_dir(
             f"Directory {dir_path} does not exist or is not a directory."
         )
     if recursive:
-        dir_paths = [p for p in dir_path.rglob("*") if p.is_dir()]
+        # Always include the root directory so flat pickle exports are discovered.
+        dir_paths = [dir_path]
+        dir_paths.extend(p for p in dir_path.rglob("*") if p.is_dir())
     else:
         dir_paths = [dir_path]
     metrics_files = []
@@ -828,17 +844,16 @@ def parse_experiment_result(
         raise ValueError(f"Column '{result_column}' not found in metrics DataFrame.")
 
     metrics_ = metrics.copy()
-    metrics_["success"] = metrics_[result_column].apply(
-        lambda x: 1 if x == "Success" else 0
-    )
-    metrics_["timeout"] = metrics_[result_column].apply(
-        lambda x: 1 if "Timeout" in x else 0
-    )
-    metrics_["collision"] = metrics_[result_column].apply(
-        lambda x: 1 if "Collision" in x else 0
-    )
-    metrics_["navigation_failure"] = metrics_[result_column].apply(
-        lambda x: 1 if "Navigation failure" in x else 0
+
+    # Keep exact success matching and make substring checks robust for NaN/float values.
+    result_series = metrics_[result_column]
+    result_text = result_series.fillna("").astype(str)
+
+    metrics_["success"] = (result_series == "Success").astype(int)
+    metrics_["timeout"] = result_text.str.contains("Timeout", na=False).astype(int)
+    metrics_["collision"] = result_text.str.contains("Collision", na=False).astype(int)
+    metrics_["navigation_failure"] = (
+        result_text.str.contains("Navigation failure", na=False).astype(int)
     )
 
     return metrics_
