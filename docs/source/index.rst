@@ -20,11 +20,11 @@ Usage of the package
 
 The package is divided into different parts:
 
-- The extraction of the data from the rosbags and the conversion of the data into pandas dataframes stored in pickle files
-- The filtering of the data to remove the outliers
-- The plotting of animations of the trajectories of the agents
-- The computation of the social evaluation metrics
-- The plotting of the social evaluation metrics
+- Extract ROS 2 bag topics into pandas dataframes stored in pickle files.
+- Filter robot and agent trajectories with EMA smoothing and Hampel outlier removal.
+- Plot single-run and aggregated trajectory images or animations.
+- Compute social-navigation metrics from extracted data.
+- Generate benchmark tables, plots, statistical analyses, and LaTeX report drivers.
 
 Bag extraction and data conversion
 ----------------------------------
@@ -46,10 +46,10 @@ Computation of the social evaluation metrics
 
 :doc:`/metrics_evaluation`
 
-Plotting and elaboration of the social evaluation metrics
----------------------------------------------------------
+Benchmark report generation
+---------------------------
 
-:doc:`/metrics_visualization`
+:doc:`/benchmark_report`
 
 
 .. toctree::
@@ -60,11 +60,10 @@ Plotting and elaboration of the social evaluation metrics
    data_filtering
    trajectory_plots
    metrics_evaluation
-   metrics_visualization
+   benchmark_report
    
 .. toctree::
    :maxdepth: 2  
    :caption: Reference:
    
    social_evaluation/social_evaluation
-

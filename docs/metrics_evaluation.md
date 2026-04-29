@@ -2,7 +2,11 @@
 
 ## Evaluate the social metrics from the pickle files
 
-Use the script `metrics_evaluation` to evaluate the social metrics from the pickle files. The script takes as input the path to the pickle file that contains the dataframes and the path to the output directory where the results will be saved. The script also takes as input the name of the experiment that we want to evaluate the social metrics for.
+Use the script `metrics_evaluation` to evaluate social metrics from extracted
+pickle files. The command reads experiment and algorithm names from
+`--config-file`, loads extracted run data from `--data-file`, reads metric
+parameters and the selected metric list from `--metrics-file`, and writes one
+metrics dataframe to `--output-file`.
 
 ```bash
 metrics_evaluation -h # to see the help
@@ -43,36 +47,30 @@ The supported social metrics are:
 - __*obstacle_force_on_agents*__ : the obstacle force that the robot applies to the people in modulus
 - __*obstacle_force_on_robot*__ : the obstacle force that the people apply to the robot in modulus
 
-The script will save the results in a dataframe in a pickle file in the output directory specified by the user.
+The script saves the results as a single pandas dataframe in the output pickle
+file specified by the user. Each row represents one evaluated run and includes
+the selected metric values plus `experiment`, `algorithm`, and `run` columns.
 
-The script needs 2 configuration files:
+The script needs two configuration files:
 
-- `experiment_config.yaml` which contains information about the experiment that we want to extract the dataframes for. The file contains the transforms that will be collected from the rosbag file, the map file that will be used for the experiment, the robot dynamics, and the examined people identifiers. The file also contains the name of the experiment that we want to extract the dataframes for.
+- `config.yaml` provides the `experiment_names` and `algorithms` used to group
+  runs from the extracted data.
 
 ```yaml
-# experiments_config.yaml
-experiment_name:
-  transforms:
-    - map_to_base_link:
-        child_frame_id: "base_link"
-        frame_id: "map"
-
-  map_file: maps/<experiment_map.yaml>
-
-  robot_dynamics:
-    period_for_diff: 5
-    max_velocity: 0.5
-    max_angular_velocity: 0.5
-    alpha: 0.1
-
-  examined_people:
-    - U_1.U_1
+# config.yaml
+experiment_names:
+  - group
+  - queue
+algorithms:
+  - first_planner
+  - second_planner
 ```
 
-- `metrics_config.yaml` which contains the social metrics that we want to evaluate. The file robot and experiment parameters that are used to evaluate the social metrics.
+- `metrics.yaml` contains robot/agent parameters and the social metrics to
+  evaluate.
 
 ```yaml
-# metrics_config.yaml
+# metrics.yaml
 metrics_config:
   robot_radius: 0.27
   agent_radius: 0.17
@@ -84,7 +82,7 @@ metrics_config:
   goal_tolerance: 0.3
   alpha: 0.1
   distance_threshold: 0.2
-  metrics:
+metrics:
   - time_to_reach_goal
   - path_length
   - cumulative_heading_changes
@@ -99,10 +97,16 @@ metrics_config:
 
 ## Example usage
 
-To extract the data using the `config.yaml` and `experiment_config.yaml` files, run the following command. The script needs the path to the data pickle file that contains the dataframes of the already extracted data.
+To evaluate metrics from an already extracted pickle file, run:
 
 ```bash
-metrics_evaluation --config experiments_config.yaml --metrics-file metrics_config.yaml --output-file <path_to_output_pickle_file>.pickle --data_file <path_to_data_pickle_file>.pickle
+metrics_evaluation \
+  --config-file config/config.yaml \
+  --metrics-file config/metrics.yaml \
+  --data-file <path_to_data_pickle_file>.pickle \
+  --output-file <path_to_output_pickle_file>.pickle
 ```
 
-The script will extract the dataframes from the rosbag file and save them as pickle files in the output pickle file specified by the user.
+The command loads already extracted data from `--data-file`, evaluates the
+metrics listed in `--metrics-file`, and writes the metrics dataframe to
+`--output-file`.

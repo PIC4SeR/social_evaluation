@@ -1,29 +1,32 @@
 # Bag Extraction
 
-## Extract dataframes form rosbags and save them as pickle files
+## Extract dataframes from ROS 2 bags and save them as pickle files
 
-The first step is to extract the dataframes from the rosbags and save them as pickle files
+The first step is to extract dataframes from ROS 2 bags and save them as pickle
+files.
 
 ```bash
 bag_extraction -h # to see the help
 ```
 
-The script `bag_extraction` extracts the dataframes from the rosbags and saves them as pickle files. The script takes as input the path to the rosbag file and the path to the output directory where the pickle files will be saved. The script also takes as input the name of the topics that will be extracted from the rosbag file.
+The script `bag_extraction` extracts the dataframes from ROS 2 bags and saves
+them as pickle files. It reads the bag root, experiment names, algorithm names,
+run ids, time limits, and topic names from the extraction config.
 
 The supported msg types are:
 
-- `sensor_msgs/msg/LaserScan`
 - `geometry_msgs/msg/PoseStamped`
 - `nav_msgs/msg/Odometry`
 - `nav_msgs/msg/Path`
 - `people_msgs/msg/People`
+- `std_msgs/msg/String`
 - `tf2_msgs/msg/TFMessage`
 
 The script will save the dataframes as pickle files in the output directory. The name of the pickle files can be specified by the user.
 
 The script needs 2 configuration files:
 
-- `config.yaml` is used to process different bag file in a structured way, but requires that a certain file system structure is used. The config file contains the names of the experiments, the algorithms, the experiment ids, the time limits for each experiment and algorithm, and the base path of the bag files. The time limits are used to extract the dataframes only for the time interval that we are interested in. The config file also contains the names of the topics that will be extracted from the rosbag file.
+- `config.yaml` is used to process different bag files in a structured way, but requires that a certain file system structure is used. The config file contains the names of the experiments, the algorithms, the experiment ids, the time limits for each experiment and algorithm, and the base path of the bag files. The time limits are used to extract the dataframes only for the time interval that we are interested in. The config file also contains the names of the topics that will be extracted from the rosbag file.
 
 ```yaml
 # config.yaml
@@ -86,7 +89,7 @@ The bag files should be placed in a structured way in the file system
             └── metadata.yaml
 ```
 
-- `experiment_config.yaml` which contains information about the experiment that we want to extract the dataframes for. The file contains the transforms that will be collected from the rosbag file, the map file that will be used for the experiment, the robot dynamics, and the examined people identifiers. The file also contains the name of the experiment that we want to extract the dataframes for.
+- `experiments_config.yaml` contains per-experiment metadata. Each experiment entry defines the transforms to collect from the ROS 2 bag, the map file to use, robot dynamics parameters, and the people identifiers to evaluate.
 
 ```yaml
 # experiments_config.yaml
@@ -110,10 +113,28 @@ experiment_name:
 
 ## Example usage
 
-To extract the data using the `config.yaml` and `experiment_config.yaml` files, run the following command:
+To extract the data using the `config.yaml` and `experiments_config.yaml` files, run the following command:
 
 ```bash
-bag_extraction --config-file config.yaml --exp-config-file experiment_config.yaml --output-file <path_to_output_file.pickle>
+bag_extraction \
+  --config-file config.yaml \
+  --exp-config-file experiments_config.yaml \
+  --output-file <path_to_output_file.pickle>
 ```
 
 The script will extract the dataframes from the rosbag file and save them as pickle files in the output pickle file specified by the user.
+
+For large benchmark datasets, write one pickle per experiment instead of one
+combined output file:
+
+```bash
+bag_extraction \
+  --config-file config.yaml \
+  --exp-config-file experiments_config.yaml \
+  --base-output-path extracted_bags
+```
+
+When `--base-output-path` is used, the command stores per-experiment pickles
+under that directory and skips scenarios that are already present in an
+existing per-experiment pickle. Without `--base-output-path`, an existing
+`--output-file` is loaded and reused so interrupted extractions can continue.

@@ -1,13 +1,14 @@
-Elaborate trajectory
-====================
+Trajectory Plots
+================
 
-This is a package that provides a way to analyze the trajectory of the robot in the social navigation task.
-The package uses the data that are collected from the rosbag file and converts them to a pickle file. The pickle file is then used to analyze the trajectory of the robot.
+``plot_trajectories`` generates static trajectory images and optional
+animations from extracted pickle files. It can plot each run independently and
+can also plot aggregated trajectories for each experiment/algorithm pair.
 
 Usage of the plot_trajectories code
 -----------------------------------
 
-After the conversion of the data from the rosbag to the pickle file, you can use the following code to analyze the trajectory of the robot.
+After converting ROS 2 bags to pickle files, inspect the available options with:
 
 .. code-block:: bash
 
@@ -15,31 +16,68 @@ After the conversion of the data from the rosbag to the pickle file, you can use
 
 To run the code, you need to provide:
 
-- The path to the pickle file that contains the data of the robot trajectory.
-- The path to the config file that contains the information about the experiments that we want to plot the trajectory for.
-- The path to output directory where the plot will be saved.
+- A trajectory plotting config file.
+- Either one extracted pickle file or a base directory containing per-experiment pickle files.
+- The output directory where images and animations will be saved.
 
 .. code-block:: bash
 
-    plot_trajectories --pickle-file <path_to_pickle_file> --config-file <path_to_config_file> --output-dir <path_to_output_dir>
+    plot_trajectories \
+      --pickle-file <path_to_pickle_file> \
+      --config-file <path_to_config_file> \
+      --output-dir <path_to_output_dir>
+
+For per-experiment extraction outputs, load all pickles under a directory:
+
+.. code-block:: bash
+
+    plot_trajectories \
+      --pickle-base-path <path_to_pickle_directory> \
+      --config-file config/trajectory_plots.yaml \
+      --output-dir plotted_trajectories
 
 The config file should contain the following information:
 
 .. code-block:: yaml
 
     # trajectory_plots.yaml
-    plot_single: True # plot the trajectory of the robot
-    plot_aggregated: False # plot the aggregated trajectory of the robot (experimental)
+    plot_single: true
+    plot_aggregated: false
+    plot_colorbar: false
+    time_freq: 0.1
+    use_odometry: false
+    save_fig: true
+    save_gif: true
+    save_webm: false
+    save_animation_formats:
+      - gif
+    animation_writer: pillow
+    fontsize: 16
+    image_width_multi: 1.0
+    bbox_pad_inches: 0.05
 
-    experiments: # the experiments that we want to plot the trajectory for
+    experiments:
       experiment_1:
         name: "Experiment 1"
         path: "<path_to_experiment_1_pickle_file>"
+        ax_limits: [-5, 5, -5, 5]
+
+If ``save_animation_formats`` is set, supported values are ``gif`` and
+``webm``. GIF output uses Pillow. WebM output requires an ffmpeg writer. Set
+``use_odometry`` to ``true`` to plot robot odometry instead of the
+``map_to_base_link`` transform.
 
 Output
 ------
 
-The output of the code is an animation and a plot of the trajectory of the robot in the social navigation task.
+The command writes outputs under:
+
+.. code-block:: bash
+
+   <output_dir>/<experiment_name>/<algorithm_name>/
+
+For single-run plots, files are named ``experiment_<id>.png``, ``.gif``, or
+``.webm``. For aggregate plots, files are named ``aggregated_trajectories``.
 
 Example
 -------
