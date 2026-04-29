@@ -7,7 +7,7 @@ with open(os.path.join("social_evaluation", "version.txt"), "r") as file_handler
 
 long_description = """
 
-# MPC Baselines
+# Social evaluation
 
 This repository some utilities to evaluate the social behavior of controllers 
 from a set of rosbags. 
@@ -15,7 +15,7 @@ from a set of rosbags.
 ## Links
 
 Repository:
-https://github.com/andreaostuni/social-evaluation
+https://github.com/PIC4SeR/social-evaluation
 
 
 """
@@ -84,7 +84,7 @@ setup(
     },
     description="Social Evaluation of Robot Local Planners Algorithms",
     author="Andrea Ostuni",
-    url="https://github.com/andreaostuni/social-evaluation",
+    url="https://github.com/PIC4SeR/social-evaluation",
     author_email="andrea.ostuni@polito.it",
     keywords="social-navigation robot local-planner ros2",
     license="MIT",
@@ -94,7 +94,7 @@ setup(
     python_requires=">=3.8",
     # PyPI package information.
     project_urls={
-        "Code": "https://github.com/andreaostuni/social-evaluation",
+        "Code": "https://github.com/PIC4SeR/social-evaluation",
     },
     classifiers=[
         "Programming Language :: Python :: 3",
