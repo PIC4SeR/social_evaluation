@@ -87,7 +87,7 @@ setup(
     url="https://github.com/PIC4SeR/social-evaluation",
     author_email="andrea.ostuni@polito.it",
     keywords="social-navigation robot local-planner ros2",
-    license="MIT",
+    license="GNU General Public License v3.0",
     long_description=long_description,
     long_description_content_type="text/markdown",
     version=__version__,
