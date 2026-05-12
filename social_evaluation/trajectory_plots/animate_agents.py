@@ -48,6 +48,8 @@ def plot_agent(
     desired_width: float = 0.3,
     image_width_multi: float = 1.0,
     cmap: mcolors.Colormap = plt.cm.Blues,
+    plot_trajectory: bool = True,
+    dynamic_alpha: bool = True,
 ) -> None:
     """Plot the agent in the trajectory plot
 
@@ -60,6 +62,8 @@ def plot_agent(
     :param static_image_size: Number of static images to plot
     :param desired_width: Desired width of the agent in meters
     :param image_width_multi: Multiplier for the image width
+    :param cmap: Colormap for the trajectory line
+    :param dynamic_alpha: Whether to use dynamic alpha values
     """
     x = np.array(df_trajectories["position_x"].iloc[: i + 1])
     y = np.array(df_trajectories["position_y"].iloc[: i + 1])
@@ -76,9 +80,9 @@ def plot_agent(
     lc_agent = pu.create_line_collection(
         x_smooth, y_smooth, elapsed_time, norm, cmap=cmap
     )
-    artist.append(ax.add_collection(lc_agent))
+    artist.append(ax.add_collection(lc_agent)) if plot_trajectory else None
 
-    alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1)
+    alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1) if dynamic_alpha else 1
     lc_agent.set_linewidth(3)
 
     # Add the agent image with rotation
@@ -94,7 +98,7 @@ def plot_agent(
     ab.set_clip_path(ax.patch)
     artist.append(ax.add_artist(ab))
 
-    if static_image_size > 0:
+    if static_image_size > 0 and plot_trajectory:
         len_df = len(df_trajectories)
         if len_df == 0:
             return
@@ -132,6 +136,8 @@ def plot_agents(
     desired_width: float = 0.3,
     image_width_multi: float = 1.0,
     cmap: mcolors.Colormap = plt.cm.Blues,
+    plot_trajectory: bool = True,
+    dynamic_alpha: bool = True,
 ) -> None:
     """Plot the agents in the trajectory plot
 
@@ -145,6 +151,9 @@ def plot_agents(
     :param static_image_size: Number of static images to plot
     :param desired_width: Desired width of the agent
     :param image_width_multi: Multiplier for the image width
+    :param cmap: Colormap for the trajectory line
+    :param plot_trajectory: Whether to plot the trajectory line
+    :param dynamic_alpha: Whether to use dynamic alpha values
     """
     for j in range(agent_num):
         agent_column_map = {
@@ -167,6 +176,8 @@ def plot_agents(
             desired_width=desired_width,
             image_width_multi=image_width_multi,
             cmap=cmap,
+            plot_trajectory=plot_trajectory,
+            dynamic_alpha=dynamic_alpha,
         )
 
 
@@ -183,6 +194,8 @@ def animate_trajectories(
     colorbar: bool = False,
     animate: bool = True,
     image_width_multi: float = 1.0,
+    plot_trajectory: bool = True,
+    dynamic_alpha: bool = True,
 ) -> Optional[ArtistAnimation]:
     """Animate the trajectories of the agents
 
@@ -198,6 +211,8 @@ def animate_trajectories(
     :param colorbar: Whether to plot the colorbar or not
     :param animate: Whether to animate the plot or not
     :param image_width_multi: Multiplier for the image width
+    :param plot_trajectory: Whether to plot the trajectory line or not
+    :param dynamic_alpha: Whether to use dynamic alpha values
     :return: Matplotlib animation object
     """
     artists = []
@@ -225,6 +240,8 @@ def animate_trajectories(
                 static_image_size,
                 colorbar,
                 image_width_multi,
+                plot_trajectory=plot_trajectory,
+                dynamic_alpha=dynamic_alpha,
             )
             artists.append(artist)
         ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
@@ -240,6 +257,8 @@ def animate_trajectories(
             static_image_size,
             colorbar,
             image_width_multi,
+            plot_trajectory=plot_trajectory,
+            dynamic_alpha=dynamic_alpha,
         )
         for art in artist:
             art.set_animated(False)
@@ -263,6 +282,8 @@ def plot_trajectory_frame(
     static_image_size: int = 3,
     colorbar: bool = False,
     image_width_multi: float = 1.0,
+    plot_trajectory: bool = True,
+    dynamic_alpha: bool = True,
 ) -> List[Artist]:
     """Plot the trajectory frame at a specific index
     :param df_trajectories: Dataframe with the trajectories
@@ -275,6 +296,8 @@ def plot_trajectory_frame(
     :param static_image_size: Number of static images to plot
     :param colorbar: Whether to plot the colorbar or not
     :param image_width_multi: Multiplier for the image width
+    :param plot_trajectory: Whether to plot the trajectory line or not
+    :param dynamic_alpha: Whether to use dynamic alpha values
 
     :return: List of artists for the trajectory frame
     """
@@ -291,6 +314,8 @@ def plot_trajectory_frame(
         desired_width=0.15,
         image_width_multi=image_width_multi,
         cmap=plt.cm.Reds,
+        plot_trajectory=plot_trajectory,
+        dynamic_alpha=dynamic_alpha,
     )
     plot_agents(
         ax,
@@ -303,6 +328,8 @@ def plot_trajectory_frame(
         static_image_size,
         desired_width=0.13,
         image_width_multi=image_width_multi,
+        plot_trajectory=plot_trajectory,
+        dynamic_alpha=dynamic_alpha,
     )
 
     return artist
@@ -318,6 +345,8 @@ def plot_trajectories(
     colorbar: bool = False,
     animate: bool = True,
     image_width_multi: float = 1.0,
+    plot_trajectory: bool = True,
+    dynamic_alpha: bool = True,
     ax_limits: Optional[List[float]] = None,
 ) -> Optional[ArtistAnimation]:
     """Plot the trajectories of the agents
@@ -331,6 +360,8 @@ def plot_trajectories(
     :param colorbar: Whether to plot the colorbar or not
     :param animate: Whether to animate the plot or not
     :param image_width_multi: Multiplier for the image width
+    :param plot_trajectory: Whether to plot the trajectory line or not
+    :param dynamic_alpha: Whether to use dynamic alpha values
     :param ax_limits: Limits for the axis
     :return: Animation object with the trajectories of the experiment
     """
@@ -361,6 +392,8 @@ def plot_trajectories(
         colorbar=colorbar,
         animate=animate,
         image_width_multi=image_width_multi,
+        plot_trajectory=plot_trajectory,
+        dynamic_alpha=dynamic_alpha,
     )
     if ax_limits is not None:
         pu.set_ax_limits(ax, ax_limits)
@@ -377,6 +410,8 @@ def plot_trajectories_aggregated(
     time_end: float = np.inf,
     fig: Figure = Figure(),
     animate: bool = True,
+    dynamic_alpha: bool = True,
+    plot_trajectory: bool = True,
 ):
     """Plot the trajectories of the agents aggregated
 
@@ -385,6 +420,10 @@ def plot_trajectories_aggregated(
     :param time_freq: Frequency of the time to plot
     :param time_start: Start time
     :param time_end: End time
+    :param fig: Matplotlib figure
+    :param animate: Whether to animate the plot or not
+    :param dynamic_alpha: Whether to use dynamic alpha values
+    :param plot_trajectory: Whether to plot the trajectory line or not
     """
 
     agent_num = df_trajectories_list[0].keys().str.contains("position_x_agent").sum()
@@ -400,6 +439,7 @@ def plot_trajectories_aggregated(
         time_freq=time_freq,
         animate=animate,
         image_width_multi=1.0,
+        plot_trajectory=plot_trajectory,
     )
     return ani
 
@@ -413,6 +453,7 @@ def animate_trajectories_aggregated(
     time_freq: float = 0.1,
     animate: bool = True,
     image_width_multi: float = 1.0,
+    plot_trajectory: bool = True,
 ) -> Optional[ArtistAnimation]:
     """Animate the trajectories of the agents aggregated
 
@@ -453,6 +494,7 @@ def animate_trajectories_aggregated(
             i,
             artist,
             norm,
+            plot_trajectory=plot_trajectory,
         )
 
         plot_agents_aggregated(
@@ -462,6 +504,7 @@ def animate_trajectories_aggregated(
             artist,
             agent_num,
             norm,
+            plot_trajectory=plot_trajectory,
         )
 
         artists.append(artist)
@@ -479,6 +522,7 @@ def plot_robot_aggregated(
     i: int,
     artist: List[Artist],
     norm: mcolors.Normalize,
+    plot_trajectory: bool = True,
 ) -> None:
     """
     Plot the robot trajectory aggregated
@@ -488,6 +532,7 @@ def plot_robot_aggregated(
     :param i: Index of the trajectory
     :param artist: List of artists
     :param norm: Normalize object for the trajectory time
+    :param plot_trajectory: Whether to plot the trajectory line or not
     """
     for df_trajectories in df_trajectories_list:
 

@@ -46,10 +46,10 @@ def normalize_animation_formats(
         normalized_format = animation_format.strip().lower()
         if not normalized_format:
             continue
-        if normalized_format not in {"gif", "webm"}:
+        if normalized_format not in {"gif", "webm", "mp4"}:
             raise ValueError(
                 f"Unsupported animation format '{animation_format}'. "
-                "Supported formats are 'gif' and 'webm'."
+                "Supported formats are 'gif', 'webm', and 'mp4'."
             )
         if normalized_format not in normalized_formats:
             normalized_formats.append(normalized_format)
@@ -97,7 +97,7 @@ def save_animation_output(
             )
             return
 
-    if output_format == "webm":
+    if output_format == "webm" or output_format == "mp4":
         try:
             animation.save(
                 output_path,
@@ -211,6 +211,8 @@ def plot_experiment_single(
     fontsize: int = 16,
     ax_limits: Optional[List[float]] = None,
     use_odometry: bool = False,
+    dynamic_alpha: bool = True,
+    plot_trajectory: bool = True,
 ):
     """Plot the experiment in a single plot
 
@@ -224,6 +226,9 @@ def plot_experiment_single(
     :param image_width_multi: Multiplier for the image width
     :param fontsize: Font size for the plot
     :param ax_limits: Limits for the axis
+    :param use_odometry: Whether to use odometry or map_to_base_link for the robot trajectory
+    :param dynamic_alpha: Whether to use dynamic alpha values for the trajectories
+    :param plot_trajectory: Whether to plot the trajectory line or not
     :return: Animation object with the trajectories of the experiment
     """
     df_odometry = pd.DataFrame(data[exp]["odometry"])
@@ -256,6 +261,8 @@ def plot_experiment_single(
         fontsize=fontsize,
         ax_limits=ax_limits,
         use_odometry=use_odometry,
+        dynamic_alpha=dynamic_alpha,
+        plot_trajectory=plot_trajectory,
     )
     return ani
 
@@ -279,6 +286,8 @@ def plot_data(
     fontsize: int = 16,
     ax_limits: Optional[List[float]] = None,
     use_odometry: bool = False,
+    dynamic_alpha: bool = True,
+    plot_trajectory: bool = True,
 ) -> ArtistAnimation | None:
     """Plot the data in a single plot
 
@@ -298,6 +307,9 @@ def plot_data(
     :param image_width_multi: Multiplier for the image width
     :param fontsize: Font size for the plot
     :param ax_limits: Limits for the axis
+    :param use_odometry: Whether to use odometry or map_to_base_link for the robot trajectory
+    :param dynamic_alpha: Whether to use dynamic alpha values for the trajectories
+    :param plot_trajectory: Whether to plot the trajectory line or not
     :return: Animation object with the trajectories of the experiment
     """
     pu.plot_map(map, ax, map_metadata["resolution"], map_metadata["origin"])
@@ -322,6 +334,8 @@ def plot_data(
         animate=animate,
         image_width_multi=image_width_multi,
         ax_limits=ax_limits,
+        dynamic_alpha=dynamic_alpha,
+        plot_trajectory=plot_trajectory,
     )
 
     ax.set_xlabel("X (m)", fontsize=fontsize)
@@ -441,6 +455,8 @@ def main():
     plot_aggregated = config["plot_aggregated"]
     plot_colorbar = config.get("plot_colorbar", False)
     time_freq = config.get("time_freq", 0.1)
+    dynamic_alpha = config.get("dynamic_alpha", True)
+    plot_trajectory = config.get("plot_trajectory", True)
     use_odometry = config.get("use_odometry", False)
     save_gif = config.get("save_gif", True)
     save_webm = config.get("save_webm", False)
@@ -527,6 +543,8 @@ def main():
                 .get(experiment_name, {})
                 .get("ax_limits", None),
                 use_odometry=use_odometry,
+                dynamic_alpha=dynamic_alpha,
+                plot_trajectory=plot_trajectory,
             )
 
             if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():
