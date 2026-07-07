@@ -1,5 +1,4 @@
 import numpy as np
-import math
 import pandas as pd
 from typing import List, Tuple
 from enum import Enum
@@ -67,40 +66,40 @@ def get_group_center(
     :param distance: Distance to the group center
     :return: Dataframe with the group center data"""
 
-    group = [df_agent for df_agent in df_agents_list if df_agent.group_id == group_id]
+    # Select only the agents belonging to this group. ``group_id`` is a column,
+    # so compare element-wise and keep the agent if any sample matches.
+    # ``group_id`` is a column and may be stored as str (bag extraction casts it)
+    # while ``group_id`` here is an int from detect_groups, so compare as strings.
+    group = [
+        df_agent
+        for df_agent in df_agents_list
+        if (df_agent.group_id.astype(str) == str(group_id)).any()
+    ]
     df_agents = combine_df_agents(group)
 
     df_agents = df_agents.interpolate(method="cubic", order=3)
     df_agents.dropna(inplace=True)
     df_agents.reset_index(drop=True, inplace=True)
 
-    for i in range(len(df_agents_list)):
-        df_agents[f"group_point_x_agent{i}"] = df_agents.apply(
-            lambda x: [
-                x[f"position_x_agent{i}"] + distance * math.cos(x[f"yaw_agent{i}"])
-            ],
-            axis=1,
+    # combine_df_agents re-indexes the selected agents as agent0..agent{len(group)-1},
+    # so iterate over the group members only.
+    for i in range(len(group)):
+        df_agents[f"group_point_x_agent{i}"] = (
+            df_agents[f"position_x_agent{i}"]
+            + distance * np.cos(df_agents[f"yaw_agent{i}"])
         )
-        df_agents[f"group_point_y_agent{i}"] = df_agents.apply(
-            lambda x: [
-                x[f"position_y_agent{i}"] + distance * math.sin(x[f"yaw_agent{i}"])
-            ],
-            axis=1,
+        df_agents[f"group_point_y_agent{i}"] = (
+            df_agents[f"position_y_agent{i}"]
+            + distance * np.sin(df_agents[f"yaw_agent{i}"])
         )
 
-    df_agents["group_center_x"] = df_agents.apply(
-        lambda x: np.mean(
-            [x[f"group_point_agent{i}"] for i in range(len(df_agents_list))], axis=0
-        ),
-        axis=1,
-    )
-    df_agents["group_center_y"] = df_agents.apply(
-        lambda x: np.mean(
-            [x[f"group_point_y_agent{i}"] for i in range(len(df_agents_list))], axis=0
-        ),
-        axis=1,
-    )
-    return df_agents["time", "group_center_x", "group_center_y"]
+    df_agents["group_center_x"] = df_agents[
+        [f"group_point_x_agent{i}" for i in range(len(group))]
+    ].mean(axis=1)
+    df_agents["group_center_y"] = df_agents[
+        [f"group_point_y_agent{i}" for i in range(len(group))]
+    ].mean(axis=1)
+    return df_agents[["time", "group_center_x", "group_center_y"]]
 
 
 def distance_to_closest_person(
@@ -134,7 +133,6 @@ def distance_to_closest_person(
         - robot_radius
         - agent_radius
     )
-    df_agents[["time", "min_distance"]]
     return df_agents[["time", "min_distance"]]
 
 
@@ -173,8 +171,10 @@ def detect_groups(df_agents_list: List[pd.DataFrame]) -> List[int]:
     for df_agent in df_agents_list:
         df_agent.dropna(inplace=True)
         group_ids.extend(df_agent.group_id.unique())
-    group_ids = [int(group_id) for group_id in group_ids if group_id != "-1"]
-    return group_ids
+    # Deduplicate: several agents share the same group_id, but each group must be
+    # processed once (otherwise group intrusions are double-counted). Exclude the
+    # ungrouped sentinel (-1).
+    return sorted({int(group_id) for group_id in group_ids if int(group_id) != -1})
 
 
 def group_space_intrusions(
@@ -194,7 +194,9 @@ def group_space_intrusions(
     :return: Percentage of space intrusions and dataframe with the time and intrusion"""
     group_ids = detect_groups(df_agents_list)
     if len(group_ids) == 0:
-        return [0.0, pd.DataFrame()]
+        # Return a tuple (not a list) so the metric dispatch stores the scalar
+        # 0.0 rather than the raw [value, df] pair.
+        return 0.0, pd.DataFrame()
 
     df_agents = combine_df_robot_agents(df_robot, df_agents_list)
     df_group_intrusions = pd.DataFrame()
@@ -202,7 +204,11 @@ def group_space_intrusions(
     df_group_intrusions["group_intrusion"] = 0
     for group_id in group_ids:
         df_group_center = get_group_center(df_agents_list, group_id, group_radius)
-        df_group_center.merge(df_robot, on="time", how="outer")
+        # Attach the robot position (the merge result must be assigned back, else
+        # position_x/position_y are missing when the distance is computed below).
+        df_group_center = df_group_center.merge(
+            df_robot[["time", "position_x", "position_y"]], on="time", how="outer"
+        )
         df_group_center = df_group_center.interpolate(method="cubic", order=3)
         df_group_center.dropna(inplace=True)
         df_group_center.reset_index(drop=True, inplace=True)
@@ -216,7 +222,6 @@ def group_space_intrusions(
             ),
             axis=1,
         )
-        df_group_center["intrusion"] = df_group_center["distance"] - robot_radius
         df_group_center["intrusion"] = df_group_center["distance"].apply(
             lambda x: indicator_function(x, k)
         )

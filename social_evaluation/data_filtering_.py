@@ -51,16 +51,19 @@ def create_filtered_data(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate social metrics")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(description="Filter recorded social navigation data")
+
+    # Exactly one input source is required.
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
         "--pickle-file",
         type=Path,
-        help="Path to the file to be filtered",
+        help="Path to a single pickle file to be filtered",
     )
-    parser.add_argument(
+    input_group.add_argument(
         "--base-path",
         type=Path,
-        help="Base directory containing the pickle files to be filtered",
+        help="Directory containing the pickle files to be filtered",
     )
 
     parser.add_argument(
@@ -84,53 +87,62 @@ def main():
         default=1.5,
     )
 
-    parser.add_argument(
+    # At most one output target: an explicit file (single input) or a directory.
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
         "--output-file",
         type=Path,
-        help="Path to save the filtered data",
         default=None,
+        help="Path to save the filtered file (only valid with --pickle-file)",
     )
-
-    parser.add_argument(
+    output_group.add_argument(
         "--base-output-dir",
         type=Path,
         default=None,
-        help="Override the base output directory for all scenarios",
+        help="Directory to save the filtered files (default: alongside each input)",
     )
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
-    if args.output_file is not None and args.base_output_dir is not None:
-        raise ValueError(
-            "Cannot specify both --output-file and --base-output-dir. Please choose one."
-        )
-    
-    if args.base_path is not None and args.pickle_file is not None:
-        raise ValueError(
-            "Cannot specify both --pickle-file and --base-path. Please choose one."
-        )
-    
+    if args.output_file is not None and args.base_path is not None:
+        parser.error("--output-file can only be used with --pickle-file, not --base-path.")
 
-    new_files = []
-    pickle_files_to_process = []
+    def default_output(pickle_file: Path) -> Path:
+        """Output path when no explicit --output-file is given."""
+        if args.base_output_dir is not None:
+            # Preserve the input's structure relative to --base-path so nested
+            # files with the same name don't collide under the output directory.
+            if args.base_path is not None:
+                return args.base_output_dir / pickle_file.relative_to(args.base_path)
+            return args.base_output_dir / pickle_file.name
+        return pickle_file.with_name(
+            pickle_file.name.replace(".pickle", "_filtered.pickle")
+        )
 
     if args.base_path is not None:
-        for pickle_file in args.base_path.glob("*.pickle"):
-            new_file = args.base_output_dir / pickle_file.name if args.base_output_dir else pickle_file.with_name(
-                pickle_file.name.replace(".pickle", "_filtered.pickle")
-            )
-            new_files.append(new_file)
-            pickle_files_to_process.append(pickle_file)
-    elif args.pickle_file is not None:
-         pickle_files_to_process.append(args.pickle_file)
-         new_file = args.base_output_dir / args.pickle_file.name if args.base_output_dir else args.pickle_file.with_name(
-            args.pickle_file.name.replace(".pickle", "_filtered.pickle")
+        if not args.base_path.exists():
+            parser.error(f"Base path {args.base_path} does not exist.")
+        # Recurse to match the nested layout produced by bag_extraction
+        # (get_experiment_output_path) and consumed by plot_trajectories'
+        # --pickle-base-path. Skip already-filtered outputs so re-runs don't
+        # re-filter their own results.
+        pickle_files_to_process = sorted(
+            f
+            for f in args.base_path.rglob("*.pickle")
+            if not f.name.endswith("_filtered.pickle")
         )
-         new_files.append(new_file)
+        if not pickle_files_to_process:
+            parser.error(f"No .pickle files found under {args.base_path}")
+        new_files = [default_output(pickle_file) for pickle_file in pickle_files_to_process]
     else:
-        raise ValueError("Either --pickle-file or --base-path must be specified.")
-    
+        pickle_files_to_process = [args.pickle_file]
+        new_files = [
+            args.output_file
+            if args.output_file is not None
+            else default_output(args.pickle_file)
+        ]
+
     # use tqdm to show a progress bar while processing the files
     for file_to_use, new_file in tqdm(zip(pickle_files_to_process, new_files), desc=f"Processing files", total=len(pickle_files_to_process)):
         with open(file_to_use, "rb") as file:
@@ -147,6 +159,7 @@ def main():
                 },
             )
         print(f"Saving filtered data to {new_file}")
+        new_file.parent.mkdir(parents=True, exist_ok=True)
         with open(new_file, "wb") as f_out:
             pickle.dump(filtered_data, f_out)
 

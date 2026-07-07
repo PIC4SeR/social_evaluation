@@ -417,7 +417,7 @@ def get_goal_position(pose_stamped_msgs: List[PoseStamped]) -> Tuple[float, floa
         for pose_stamped_msg in pose_stamped_msgs
     }
     if len(goals) > 1:
-        Warning("More than one goal position found. Returning the first one.")
+        warning("More than one goal position found. Returning an arbitrary one.")
     return goals.pop()
 
 

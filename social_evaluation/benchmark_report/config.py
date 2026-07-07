@@ -42,6 +42,13 @@ class BenchmarkConfig:
     """
 
 
+def _as_bool(raw: Any) -> bool:
+    """Coerce a config value to bool, treating "true"/"1"/"yes" (any case) as True."""
+    if isinstance(raw, str):
+        return raw.lower() in ("true", "1", "yes")
+    return bool(raw)
+
+
 def resolve_path(
     path_value: Union[str, os.PathLike, None], base: Path
 ) -> Optional[Path]:
@@ -113,15 +120,7 @@ def format_metric_groups(
             formatted[group_key][metric_key] = label
             directions[metric_key] = direction_key
             if "discard_failed" in spec:
-                raw = spec["discard_failed"]
-                if isinstance(raw, str):
-                    discard_overrides[metric_key] = raw.lower() in (
-                        "true",
-                        "1",
-                        "yes",
-                    )
-                else:
-                    discard_overrides[metric_key] = bool(raw)
+                discard_overrides[metric_key] = _as_bool(spec["discard_failed"])
         if not aggregate_spec_raw:
             if isinstance(group_plot_metrics_raw, (list, tuple)):
                 plot_metric_keys[group_key] = [
@@ -239,15 +238,7 @@ def format_intrusion_labels(
         if isinstance(spec, dict):
             labels[col_key] = str(spec.get("name", col_key))
             if "discard_failed" in spec:
-                raw = spec["discard_failed"]
-                if isinstance(raw, str):
-                    discard_overrides[col_key] = raw.lower() in (
-                        "true",
-                        "1",
-                        "yes",
-                    )
-                else:
-                    discard_overrides[col_key] = bool(raw)
+                discard_overrides[col_key] = _as_bool(spec["discard_failed"])
         else:
             labels[col_key] = str(spec)
     return labels, discard_overrides

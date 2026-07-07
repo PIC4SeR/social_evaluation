@@ -110,12 +110,14 @@ def find_ordered_sequence_between_frames(
     ) is not None:
         return ordered_sequence
 
-    return [
-        _invert_transform_data(transform)
-        for transform in _find_ordered_sequence_between_frames(
-            df, child_frame_id, frame_id, time
-        )
-    ]
+    # Try the reverse direction and invert. If that path is also missing, return
+    # None so the caller raises a clear ValueError instead of iterating None.
+    reverse_sequence = _find_ordered_sequence_between_frames(
+        df, child_frame_id, frame_id, time
+    )
+    if reverse_sequence is None:
+        return None
+    return [_invert_transform_data(transform) for transform in reverse_sequence]
 
 
 def _invert_transform_data(
@@ -160,11 +162,17 @@ def _find_ordered_sequence_between_frames(
             break
         visited.add(current_frame)
         for column in df.columns:
-            if current_frame in column:
-                next_frame = column.split(" -> ")[1]
-                if next_frame not in visited:
-                    queue.append((next_frame, current_frame))
-                    predecessors[next_frame] = current_frame
+            # Columns are "<parent> -> <child>". Only follow an edge whose parent
+            # is exactly current_frame (substring matching picks wrong/partial
+            # frames and mis-reads the direction).
+            if " -> " not in column:
+                continue
+            parent, next_frame = column.split(" -> ", 1)
+            if parent != current_frame:
+                continue
+            if next_frame not in visited and next_frame not in predecessors:
+                queue.append((next_frame, current_frame))
+                predecessors[next_frame] = current_frame
     if child_frame_id not in predecessors:
         return None
     current_frame = child_frame_id
@@ -220,9 +228,11 @@ def compute_odometry_data(
     df["velocity_y"] = df_vel["velocity_y"] / dt
     df["velocity_z"] = df_vel["velocity_z"] / dt
 
-    df[df["velocity_x"].abs() > max_velocity] = np.nan
-    df[df["velocity_y"].abs() > max_velocity] = np.nan
-    df[df["velocity_z"].abs() > max_velocity] = np.nan
+    # Null only the offending velocity component (not the whole row, which would
+    # also blank time/position/quaternion columns used below for angular velocity).
+    df.loc[df["velocity_x"].abs() > max_velocity, "velocity_x"] = np.nan
+    df.loc[df["velocity_y"].abs() > max_velocity, "velocity_y"] = np.nan
+    df.loc[df["velocity_z"].abs() > max_velocity, "velocity_z"] = np.nan
 
     # replace the zeros in the velocity columns with the interpolation of the previous and next values
     df.infer_objects(copy=False)
@@ -277,9 +287,9 @@ def compute_odometry_data(
         )
     )
 
-    df[df["angular_velocity_x"].abs() > max_angular_vel] = np.nan
-    df[df["angular_velocity_y"].abs() > max_angular_vel] = np.nan
-    df[df["angular_velocity_z"].abs() > max_angular_vel] = np.nan
+    df.loc[df["angular_velocity_x"].abs() > max_angular_vel, "angular_velocity_x"] = np.nan
+    df.loc[df["angular_velocity_y"].abs() > max_angular_vel, "angular_velocity_y"] = np.nan
+    df.loc[df["angular_velocity_z"].abs() > max_angular_vel, "angular_velocity_z"] = np.nan
 
     # replace the zeros in the angular velocity columns with the interpolation of the previous and next values
     df["angular_velocity_x"] = _spline_interpolate_with_fallback(

@@ -163,8 +163,6 @@ def style_report_latex(
     std_dev_df: Optional[Union[float, pd.Series, pd.DataFrame]] = None,
     metric_directions: Optional[Mapping[str, str]] = None,
 ) -> pd.DataFrame:
-    from matplotlib import cm
-
     styled_df = mean_df.copy().astype(object)
 
     def _resolve_direction(column: str) -> str:
@@ -266,7 +264,7 @@ def style_report_latex(
                 )
         return styled_df
 
-    cmap = cm.get_cmap(cmap_name)
+    cmap = plt.get_cmap(cmap_name)
     norms = []
     for col in mean_df.columns:
         if "%" in col or "Success Rate" in col or "SR" in col:
@@ -426,22 +424,23 @@ def _prepare_numeric_metric_columns(
     return metrics, value_columns
 
 
-def get_mean_metrics(
-    metrics: pd.DataFrame, experiments: Optional[List[str]]
+def _aggregate_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]], aggfunc: str
 ) -> pd.DataFrame:
-    """Calculate the mean of metrics grouped by experiment and algorithm.
+    """Aggregate numeric metric columns by experiment and algorithm using *aggfunc*.
 
     Args:
         metrics (pd.DataFrame): DataFrame containing the metrics.
-        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
+        experiments (Optional[List[str]]): Experiments to include. If None, include all.
+        aggfunc (str): Aggregation passed to ``pivot_table`` (e.g. "mean", "std").
     Returns:
-        pd.DataFrame: DataFrame containing the mean metrics grouped by experiment and algorithm.
+        pd.DataFrame: Aggregated metrics grouped by experiment and algorithm.
     """
+    if not isinstance(metrics, pd.DataFrame):
+        raise ValueError("Input must be a pandas DataFrame.")
     req_columns = ["experiment", "algorithm", "run"]
     if "result" in metrics.columns:
         req_columns.append("result")
-    if not isinstance(metrics, pd.DataFrame):
-        raise ValueError("Input must be a pandas DataFrame.")
     if experiments is not None:
         metrics = metrics[metrics["experiment"].isin(experiments)]
     metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
@@ -451,123 +450,43 @@ def get_mean_metrics(
         index=["experiment", "algorithm"],
         values=value_columns,
         dropna=False,
-        aggfunc="mean",
+        aggfunc=aggfunc,
     ).reset_index()
+
+
+def get_mean_metrics(
+    metrics: pd.DataFrame, experiments: Optional[List[str]]
+) -> pd.DataFrame:
+    """Calculate the mean of metrics grouped by experiment and algorithm."""
+    return _aggregate_metrics(metrics, experiments, "mean")
 
 
 def get_std_dev_metrics(
     metrics: pd.DataFrame, experiments: Optional[List[str]]
 ) -> pd.DataFrame:
-    """Calculate the standard deviation of metrics grouped by experiment and algorithm.
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
-    Returns:
-        pd.DataFrame: DataFrame containing the standard deviation of metrics grouped by experiment and algorithm.
-    """
-    req_columns = ["experiment", "algorithm", "run"]
-    if "result" in metrics.columns:
-        req_columns.append("result")
-    if not isinstance(metrics, pd.DataFrame):
-        raise ValueError("Input must be a pandas DataFrame.")
-    if experiments is not None:
-        metrics = metrics[metrics["experiment"].isin(experiments)]
-    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
-    if not value_columns:
-        raise ValueError("No numeric metric columns available for aggregation.")
-    return metrics.pivot_table(
-        index=["experiment", "algorithm"],
-        values=value_columns,
-        dropna=False,
-        aggfunc="std",
-    ).reset_index()
+    """Calculate the standard deviation of metrics grouped by experiment and algorithm."""
+    return _aggregate_metrics(metrics, experiments, "std")
 
 
 def get_median_metrics(
     metrics: pd.DataFrame, experiments: Optional[List[str]]
 ) -> pd.DataFrame:
-    """Calculate the median of metrics grouped by experiment and algorithm.
-
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
-    Returns:
-        pd.DataFrame: DataFrame containing the median metrics grouped by experiment and algorithm.
-    """
-    req_columns = ["experiment", "algorithm", "run"]
-    if "result" in metrics.columns:
-        req_columns.append("result")
-    if not isinstance(metrics, pd.DataFrame):
-        raise ValueError("Input must be a pandas DataFrame.")
-    if experiments is not None:
-        metrics = metrics[metrics["experiment"].isin(experiments)]
-    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
-    if not value_columns:
-        raise ValueError("No numeric metric columns available for aggregation.")
-    return metrics.pivot_table(
-        index=["experiment", "algorithm"],
-        values=value_columns,
-        dropna=False,
-        aggfunc="median",
-    ).reset_index()
+    """Calculate the median of metrics grouped by experiment and algorithm."""
+    return _aggregate_metrics(metrics, experiments, "median")
 
 
 def get_max_metrics(
     metrics: pd.DataFrame, experiments: Optional[List[str]]
 ) -> pd.DataFrame:
-    """Calculate the maximum of metrics grouped by experiment and algorithm.
-
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
-    Returns:
-        pd.DataFrame: DataFrame containing the maximum metrics grouped by experiment and algorithm.
-    """
-    req_columns = ["experiment", "algorithm", "run"]
-    if "result" in metrics.columns:
-        req_columns.append("result")
-    if not isinstance(metrics, pd.DataFrame):
-        raise ValueError("Input must be a pandas DataFrame.")
-    if experiments is not None:
-        metrics = metrics[metrics["experiment"].isin(experiments)]
-    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
-    if not value_columns:
-        raise ValueError("No numeric metric columns available for aggregation.")
-    return metrics.pivot_table(
-        index=["experiment", "algorithm"],
-        values=value_columns,
-        dropna=False,
-        aggfunc="max",
-    ).reset_index()
+    """Calculate the maximum of metrics grouped by experiment and algorithm."""
+    return _aggregate_metrics(metrics, experiments, "max")
 
 
 def get_min_metrics(
     metrics: pd.DataFrame, experiments: Optional[List[str]]
 ) -> pd.DataFrame:
-    """Calculate the minimum of metrics grouped by experiment and algorithm.
-
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-        experiments (Optional[List[str]]): List of experiments to include in the summary. If None, include all experiments.
-    Returns:
-        pd.DataFrame: DataFrame containing the minimum metrics grouped by experiment and algorithm.
-    """
-    req_columns = ["experiment", "algorithm", "run"]
-    if "result" in metrics.columns:
-        req_columns.append("result")
-    if not isinstance(metrics, pd.DataFrame):
-        raise ValueError("Input must be a pandas DataFrame.")
-    if experiments is not None:
-        metrics = metrics[metrics["experiment"].isin(experiments)]
-    metrics, value_columns = _prepare_numeric_metric_columns(metrics, req_columns)
-    if not value_columns:
-        raise ValueError("No numeric metric columns available for aggregation.")
-    return metrics.pivot_table(
-        index=["experiment", "algorithm"],
-        values=value_columns,
-        dropna=False,
-        aggfunc="min",
-    ).reset_index()
+    """Calculate the minimum of metrics grouped by experiment and algorithm."""
+    return _aggregate_metrics(metrics, experiments, "min")
 
 
 def get_group_mean_metrics(
@@ -650,30 +569,40 @@ def get_group_std_dev_metrics(
     return pd.concat(group_std_devs, ignore_index=True)
 
 
+def _group_extremum_metrics(
+    metrics: pd.DataFrame,
+    episode_groups: Mapping[str, Union[str, List[str], Tuple[str, ...]]],
+    experiments: Optional[List[str]],
+    kind: str,
+) -> pd.DataFrame:
+    """Aggregate the per-experiment max/min into per-group extrema.
+
+    Args:
+        kind (str): "max" or "min" — selects both the per-experiment reduction
+            and the across-experiment reduction within each group.
+    """
+    per_experiment = (get_max_metrics if kind == "max" else get_min_metrics)(
+        metrics, experiments=experiments
+    )
+    group_frames = []
+    for group_name, experiment_names in episode_groups.items():
+        if isinstance(experiment_names, str):
+            experiment_names = [experiment_names]
+        subset = per_experiment[per_experiment["experiment"].isin(experiment_names)]
+        reduced = getattr(subset.groupby("algorithm"), kind)(numeric_only=True)
+        group_frame = reduced.reset_index()
+        group_frame["experiment"] = group_name
+        group_frames.append(group_frame)
+    return pd.concat(group_frames, ignore_index=True)
+
+
 def get_group_max_metrics(
     metrics: pd.DataFrame,
     episode_groups: Mapping[str, Union[str, List[str], Tuple[str, ...]]],
     experiments: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """Calculate the maximum aggregated over episode groups."""
-
-    # first get the max metrics by experiment and algorithm
-    max_metrics = get_max_metrics(metrics, experiments=experiments)
-
-    # for each group we create a new row in the output dataframe with the max of the maxs of the experiments in that group
-    group_maxs = []
-    for group_name, experiment_names in episode_groups.items():
-        if isinstance(experiment_names, str):
-            experiment_names = [experiment_names]
-        group_max = (
-            max_metrics[max_metrics["experiment"].isin(experiment_names)]
-            .groupby("algorithm")
-            .max(numeric_only=True)
-            .reset_index()
-        )
-        group_max["experiment"] = group_name
-        group_maxs.append(group_max)
-    return pd.concat(group_maxs, ignore_index=True)
+    return _group_extremum_metrics(metrics, episode_groups, experiments, "max")
 
 
 def get_group_min_metrics(
@@ -682,24 +611,7 @@ def get_group_min_metrics(
     experiments: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """Calculate the minimum aggregated over episode groups."""
-
-    # first get the min metrics by experiment and algorithm
-    min_metrics = get_min_metrics(metrics, experiments=experiments)
-
-    # for each group we create a new row in the output dataframe with the min of the mins of the experiments in that group
-    group_mins = []
-    for group_name, experiment_names in episode_groups.items():
-        if isinstance(experiment_names, str):
-            experiment_names = [experiment_names]
-        group_min = (
-            min_metrics[min_metrics["experiment"].isin(experiment_names)]
-            .groupby("algorithm")
-            .min(numeric_only=True)
-            .reset_index()
-        )
-        group_min["experiment"] = group_name
-        group_mins.append(group_min)
-    return pd.concat(group_mins, ignore_index=True)
+    return _group_extremum_metrics(metrics, episode_groups, experiments, "min")
 
 
 def get_metrics_summary(
@@ -735,36 +647,6 @@ def get_metrics_summary(
     return summary
 
 
-def filter_metrics_by_algorithm(metrics: pd.DataFrame, algorithm: str) -> pd.DataFrame:
-    """
-    Filter metrics by a specific algorithm.
-
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-        algorithm (str): The algorithm to filter by.
-
-    Returns:
-        pd.DataFrame: Filtered DataFrame containing metrics for the specified algorithm.
-    """
-    return metrics[metrics["algorithm"] == algorithm].reset_index(drop=True)
-
-
-def filter_metrics_by_experiment(
-    metrics: pd.DataFrame, experiment: str
-) -> pd.DataFrame:
-    """
-    Filter metrics by a specific experiment.
-
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-        experiment (str): The experiment to filter by.
-
-    Returns:
-        pd.DataFrame: Filtered DataFrame containing metrics for the specified experiment.
-    """
-    return metrics[metrics["experiment"] == experiment].reset_index(drop=True)
-
-
 def filter_metrics_for_success(metrics: pd.DataFrame) -> pd.DataFrame:
     """Filter metrics for successful runs.
     Args:
@@ -773,19 +655,6 @@ def filter_metrics_for_success(metrics: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Filtered DataFrame containing metrics for successful runs.
     """
     return metrics[metrics["result"] == "Success"].reset_index(drop=True)
-
-
-def filter_metrics_for_failure(metrics: pd.DataFrame) -> pd.DataFrame:
-    """
-    Filter metrics for failed runs.
-
-    Args:
-        metrics (pd.DataFrame): DataFrame containing the metrics.
-
-    Returns:
-        pd.DataFrame: Filtered DataFrame containing metrics for failed runs.
-    """
-    return metrics[metrics["result"] != "Success"].reset_index(drop=True)
 
 
 def select_metrics_by_columns(

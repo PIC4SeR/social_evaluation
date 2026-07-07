@@ -28,7 +28,9 @@ setup(
     ],
     package_data={"social_evaluation": ["py.typed", "version.txt"]},
     install_requires=[
-        "numpy",
+        # opencv-python 4.10 is built against the NumPy 1.x C ABI; NumPy 2.x
+        # breaks cv2 import ("numpy.core.multiarray failed to import").
+        "numpy<2",
         # For reading logs. Keep pandas below 2.2 and matplotlib at
         # least 3.6.3 to avoid the Series indexing failure triggered
         # by seaborn's categorical plots with older matplotlib.

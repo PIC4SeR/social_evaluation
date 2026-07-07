@@ -288,181 +288,48 @@ def maximum_distance_to_people(
     return np.max(df_agents["max_distance"]), df_agents[["time", "max_distance"]]
 
 
-@metric("intimate_space_intrusions")
-def intimate_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    agent_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of intimate space intrusions
+def _make_space_intrusion_metric(space: SocialSpace):
+    """Build a per-agent space-intrusion metric for a given social space."""
 
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :param agent_radius: float with the agent's radius
-    :return: float with the percentage of intimate space intr
-    """
+    def _metric(
+        df_agents_list: List[pd.DataFrame],
+        df_robot: pd.DataFrame,
+        *args,
+        robot_radius: float = 0.3,
+        agent_radius: float = 0.3,
+        **kwargs,
+    ) -> Tuple[float, pd.DataFrame]:
+        return space_intrusions(
+            df_agents_list, df_robot, space, robot_radius, agent_radius
+        )
 
-    percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.INTIMATE, robot_radius, agent_radius
+    return _metric
+
+
+def _make_group_space_intrusion_metric(space: SocialSpace):
+    """Build a per-group space-intrusion metric for a given social space."""
+
+    def _metric(
+        df_agents_list: List[pd.DataFrame],
+        df_robot: pd.DataFrame,
+        *args,
+        robot_radius: float = 0.3,
+        **kwargs,
+    ) -> Tuple[float, pd.DataFrame]:
+        return group_space_intrusions(
+            df_agents_list, df_robot, space, robot_radius=robot_radius
+        )
+
+    return _metric
+
+
+# Register the four proxemic zones for both per-agent and per-group intrusions.
+for _space in SocialSpace:
+    _zone = _space.name.lower()
+    metric(f"{_zone}_space_intrusions")(_make_space_intrusion_metric(_space))
+    metric(f"group_{_zone}_space_intrusions")(
+        _make_group_space_intrusion_metric(_space)
     )
-    return percentage, df_intrusion
-
-
-@metric("personal_space_intrusions")
-def personal_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    agent_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of personal space intrusions
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :param agent_radius: float with the agent's radius
-    :return: float with the percentage of personal space intrusions
-    """
-    percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PERSONAL, robot_radius, agent_radius
-    )
-    return percentage, df_intrusion
-
-
-@metric("social_space_intrusions")
-def social_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    agent_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of social space intrusions
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :param agent_radius: float with the agent's radius
-    :return: float with the percentage of social space intrusions
-    """
-    percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.SOCIAL, robot_radius, agent_radius
-    )
-    return percentage, df_intrusion
-
-
-@metric("public_space_intrusions")
-def public_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    agent_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of public space intrusions
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :param agent_radius: float with the agent's radius
-    :return: float with the percentage of public space intrusions
-    """
-    percentage, df_intrusion = space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PUBLIC, robot_radius, agent_radius
-    )
-    return percentage, df_intrusion
-
-
-@metric("group_intimate_space_intrusions")
-def group_intimate_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of intimate space intrusions for each group
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :return: float with the percentage of intimate space intrusions for each group
-    """
-    percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.INTIMATE, robot_radius=robot_radius
-    )
-    return percentage, df_group_intrusions
-
-
-@metric("group_personal_space_intrusions")
-def group_personal_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of personal space intrusions for each group
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :return: float with the percentage of personal space intrusions for each group
-    """
-    percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PERSONAL, robot_radius=robot_radius
-    )
-    return percentage, df_group_intrusions
-
-
-@metric("group_social_space_intrusions")
-def group_social_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of social space intrusions for each group
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :return: float with the percentage of social space intrusions for each group
-    """
-    percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.SOCIAL, robot_radius=robot_radius
-    )
-    return percentage, df_group_intrusions
-
-
-@metric("group_public_space_intrusions")
-def group_public_space_intrusions(
-    df_agents_list: List[pd.DataFrame],
-    df_robot: pd.DataFrame,
-    *args,
-    robot_radius: float = 0.3,
-    **kwargs,
-) -> Tuple[float, pd.DataFrame]:
-    """Compute the percentage of public space intrusions for each group
-
-    :param df_agents_list: list of pandas DataFrames with the agents' data
-    :param df_robot: pandas DataFrame with the robot's data
-    :param robot_radius: float with the robot's radius
-    :return: float with the percentage of public space intrusions for each group
-    """
-    percentage, df_group_intrusions = group_space_intrusions(
-        df_agents_list, df_robot, SocialSpace.PUBLIC, robot_radius=robot_radius
-    )
-    return percentage, df_group_intrusions
 
 
 # SEAN 2.0: Formalizing and Generating Social Situations for Robot Navigation
@@ -664,13 +531,15 @@ def avg_acceleration(
     df_robot_["acceleration"] = df_robot.velocity_x.abs().diff(
         periods=period
     ) / df_robot.time.diff(periods=period)
-    df_robot_[df_robot_["acceleration"].abs() > max_accel] = np.nan
+    # Null only the outlier acceleration values (not the whole row) so they can
+    # be interpolated; masking the whole row would blank `time` and drop them.
+    df_robot_.loc[df_robot_["acceleration"].abs() > max_accel, "acceleration"] = np.nan
     df_robot_["acceleration"] = df_robot_["acceleration"].interpolate(
         method="cubic", order=3
     )
     df_robot_.dropna(inplace=True)
     df_robot_.reset_index(drop=True, inplace=True)
-    df_robot_["acceleration"].ewm(alpha=alpha).mean()
+    df_robot_["acceleration"] = df_robot_["acceleration"].ewm(alpha=alpha).mean()
 
     return df_robot_["acceleration"].mean(), df_robot_[["time", "acceleration"]]
 
@@ -699,18 +568,20 @@ def avg_overacceleration(
 
     df_robot_ = df_robot.copy()
     _, df_acceleration = avg_acceleration(
-        df_agents_list, df_robot_, period, max_accel, alpha
+        df_agents_list, df_robot_, period=period, max_accel=max_accel, alpha=alpha
     )
     df_acceleration["jerk"] = df_acceleration.acceleration.diff(
         periods=period
     ) / df_acceleration.time.diff(periods=period)
-    df_acceleration[df_acceleration["jerk"].abs() > max_jerk] = np.nan
+    # Null only the outlier jerk values (not the whole row) so they can be
+    # interpolated instead of dropped.
+    df_acceleration.loc[df_acceleration["jerk"].abs() > max_jerk, "jerk"] = np.nan
     df_acceleration["jerk"] = df_acceleration["jerk"].interpolate(
         method="cubic", order=3
     )
     df_acceleration.dropna(inplace=True)
     df_acceleration.reset_index(drop=True, inplace=True)
-    df_acceleration["jerk"].ewm(alpha=alpha).mean()
+    df_acceleration["jerk"] = df_acceleration["jerk"].ewm(alpha=alpha).mean()
 
     return df_acceleration["jerk"].mean(), df_acceleration[["time", "jerk"]]
 

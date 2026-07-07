@@ -481,16 +481,16 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
     def get_navigator_palette(
         self, cmap_name: str = "Paired"
     ) -> Dict[str, Tuple[float, float, float, float]]:
-        cmap = plt.cm.get_cmap(cmap_name, len(self.ordered_navigators))
+        cmap = plt.get_cmap(cmap_name, len(self.ordered_navigators))
         return {label: cmap(i) for i, label in enumerate(self.ordered_navigators)}
 
     def get_result_palette(self) -> Dict[str, Tuple[float, float, float, float]]:
-        cmap = plt.cm.get_cmap(self.config.quality_result_cmap)
+        cmap = plt.get_cmap(self.config.quality_result_cmap)
         return {result: cmap(idx) for idx, result in enumerate(self.results)}
 
     def get_intrusion_palette(self) -> Dict[str, Tuple[float, float, float, float]]:
         intrusion_labels = list(self.config.intrusion_labels.values())
-        cmap = plt.cm.get_cmap(self.config.quality_result_cmap)
+        cmap = plt.get_cmap(self.config.quality_result_cmap)
         return {label: cmap(idx) for idx, label in enumerate(intrusion_labels)}
 
     def _experiment_order_with_groups(
@@ -560,9 +560,12 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
             )
             sr = sr.reindex(experiment_order, level=0)
             sr = sr.reindex(self.ordered_navigators, level=1)
+            # Missing experiment/navigator combinations become NaN after the
+            # reindex above; fill them before the int cast (NaN -> int raises).
             sr[r"\textbf{Success Rate (\%)} $\mathbf{\uparrow}$"] = (
                 sr[r"\textbf{Success Rate (\%)} $\mathbf{\uparrow}$"]
                 .round(2)
+                .fillna(0)
                 .astype(int)
             )
             self._success_rate = sr

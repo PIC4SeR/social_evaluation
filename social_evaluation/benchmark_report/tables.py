@@ -268,7 +268,7 @@ class TableExportMixin:
                 norm = Normalize(0.0, 1.0)
                 fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.45)
                 fig.colorbar(
-                    plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.get_cmap(cmap_name)),
+                    plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap(cmap_name)),
                     ax=ax,
                     orientation="horizontal",
                     fraction=0.8,
