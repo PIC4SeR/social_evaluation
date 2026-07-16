@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
-from social_evaluation.data_filtering import filtered_robot_agents
+from social_evaluation.data_filtering import compute_ema, filtered_robot_agents
 import pandas as pd
 from typing import Dict, Any, Union, List, Tuple, Optional
 from pathlib import Path, PosixPath
@@ -46,6 +46,15 @@ def create_filtered_data(
             alpha=alpha,
             hampel_params=hampel_params,
         )
+
+    # Multi-robot fleets: smooth each robot's frame the same way (agents were
+    # already filtered above alongside the primary robot).
+    if data.get("robots"):
+        filtered_data["robots"] = {
+            name: compute_ema(df.copy(), alpha=alpha, hampel_params=hampel_params)
+            for name, df in data["robots"].items()
+            if not df.empty
+        }
 
     return filtered_data
 

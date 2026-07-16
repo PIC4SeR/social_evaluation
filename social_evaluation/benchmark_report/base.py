@@ -319,6 +319,18 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
             raise KeyError(
                 "Metrics files must include either 'experiment_tag' or 'experiment' column"
             )
+        # The env is only encoded in the folder layout (<root>/<algo>/<env>/...),
+        # while the CSVs tag rows with the bare episode name. Rebuild
+        # "<env>/<episode>" so per-env episodes (as used in scenario
+        # episode_groups) can be told apart.
+        if "source_dir" in metrics_results.columns:
+            env = metrics_results["source_dir"].str.split("/").str[1]
+            tags = metrics_results[experiment_column].astype(str)
+            needs_prefix = env.notna() & ~tags.str.contains("/")
+            metrics_results.loc[needs_prefix, experiment_column] = (
+                env[needs_prefix] + "/" + tags[needs_prefix]
+            )
+            metrics_results = metrics_results.drop(columns=["source_dir"])
         algorithm_column = next(
             (col for col in ("algorithm", "navigator") if col in metrics_results.columns),
             None,

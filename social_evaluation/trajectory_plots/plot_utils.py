@@ -308,14 +308,36 @@ def retrieve_image_from_path(image_path: str | Path) -> np.ndarray:
 
 def get_images_for_experiment(
     agent_num: int,
-) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+    robot_names: Optional[List[str]] = None,
+) -> Tuple[Union[np.ndarray, List[np.ndarray]], List[np.ndarray], List[np.ndarray]]:
     """Get the images for the robot and agents
 
     :param agent_num: Number of agents
     :return: Tuple with the robot image, list with the images for the agents walking and list with the images for the agents standing
     """
-    robot_image_path = Path(pkg_dir, "images", "robot.png")
-    robot_image = retrieve_image_from_path(robot_image_path)
+    def robot_image_path(name: str, index: int) -> Path:
+        family = name.rsplit("_", 1)[0] if name.rsplit("_", 1)[-1].isdigit() else name
+        candidates = [
+            images_dir / f"{name}{index}.png",
+            images_dir / f"{family}{index}.png",
+            images_dir / f"{name}0.png",
+            images_dir / f"{family}0.png",
+            images_dir / f"jackal{index}.png",
+            images_dir / "jackal0.png",
+            images_dir / "robot.png",
+        ]
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            raise FileNotFoundError(f"No trajectory image found for robot '{name}'")
+        return path
+
+    if robot_names:
+        robot_image = [
+            retrieve_image_from_path(robot_image_path(name, index))
+            for index, name in enumerate(robot_names)
+        ]
+    else:
+        robot_image = retrieve_image_from_path(robot_image_path("robot", 0))
 
     agents_image_path_stand = [
         Path(pkg_dir, "images", f"agent{i % 3}_stand.png") for i in range(agent_num)

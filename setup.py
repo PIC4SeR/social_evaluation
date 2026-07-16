@@ -58,6 +58,7 @@ setup(
             "plot_trajectories=social_evaluation.plot_trajectories_:main",
             "metrics_evaluation=social_evaluation.metrics_evaluation_:main",
             "benchmark_report=social_evaluation.benchmark_report_:main",
+            "formation_timeseries=social_evaluation.formation_timeseries_:main",
         ],
     },
     extras_require={

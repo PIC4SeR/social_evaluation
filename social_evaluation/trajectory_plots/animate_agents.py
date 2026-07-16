@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,6 +28,32 @@ def _prepare_trajectory_time_index(df_trajectories: pd.DataFrame) -> pd.DataFram
     return df_trajectories_t
 
 
+def _merge_fleet_trajectories(
+    df_trajectories: pd.DataFrame,
+    df_robots: Dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Align robot trajectories with the existing combined human frame."""
+    agent_columns = [c for c in df_trajectories if c == "time" or "_agent" in c]
+    merged = df_trajectories[agent_columns].copy()
+    for index, trajectory in enumerate(df_robots.values()):
+        columns = trajectory[["time", "position_x", "position_y", "yaw"]].rename(
+            columns={
+                "position_x": f"position_x_robot{index}",
+                "position_y": f"position_y_robot{index}",
+                "yaw": f"yaw_robot{index}",
+            }
+        )
+        merged = merged.merge(columns, on="time", how="outer")
+    merged.sort_values("time", kind="stable", inplace=True, ignore_index=True)
+    numeric_columns = merged.select_dtypes(include=np.number).columns.drop("time")
+    merged[numeric_columns] = merged[numeric_columns].interpolate(
+        limit_direction="both"
+    )
+    merged.ffill(inplace=True)
+    merged.bfill(inplace=True)
+    return merged
+
+
 def smooth_angle_series(values: np.ndarray, sigma: float = 2) -> np.ndarray:
     """Smooth angular data without introducing wraparound spins."""
     if values.size == 0:
@@ -50,6 +76,7 @@ def plot_agent(
     cmap: mcolors.Colormap = plt.cm.Blues,
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
+    label: Optional[str] = None,
 ) -> None:
     """Plot the agent in the trajectory plot
 
@@ -84,6 +111,8 @@ def plot_agent(
 
     alpha = lambda i: min(0.2 + 0.8 * i / len(df_trajectories), 1) if dynamic_alpha else 1
     lc_agent.set_linewidth(3)
+    if label is not None and i == len(df_trajectories) - 1:
+        lc_agent.set_label(label)
 
     # Add the agent image with rotation
     ab = pu.create_annotation_box(
@@ -187,7 +216,7 @@ def animate_trajectories(
     ax: Axes,
     agent_num: int,
     norm: mcolors.Normalize,
-    image_robot: np.ndarray,
+    image_robot: np.ndarray | List[np.ndarray],
     image_agents_walk: List[np.ndarray],
     static_image_size: int = 3,
     time_freq: float = 0.1,
@@ -196,6 +225,7 @@ def animate_trajectories(
     image_width_multi: float = 1.0,
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
+    robot_names: Optional[List[str]] = None,
 ) -> Optional[ArtistAnimation]:
     """Animate the trajectories of the agents
 
@@ -242,6 +272,7 @@ def animate_trajectories(
                 image_width_multi,
                 plot_trajectory=plot_trajectory,
                 dynamic_alpha=dynamic_alpha,
+                robot_names=robot_names,
             )
             artists.append(artist)
         ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
@@ -259,11 +290,19 @@ def animate_trajectories(
             image_width_multi,
             plot_trajectory=plot_trajectory,
             dynamic_alpha=dynamic_alpha,
+            robot_names=robot_names,
         )
         for art in artist:
             art.set_animated(False)
             ax.add_artist(art)
         fig.canvas.draw()
+
+    if robot_names and plot_trajectory:
+        handles, labels = ax.get_legend_handles_labels()
+        unique_handles = dict(zip(labels, handles))
+        ax.legend(
+            unique_handles.values(), unique_handles.keys(), fontsize=9, ncol=2
+        )
 
     if colorbar and artists:
         cb = plt.colorbar(artists[-1][0], ax=ax)
@@ -277,13 +316,14 @@ def plot_trajectory_frame(
     ax: Axes,
     agent_num: int,
     norm: mcolors.Normalize,
-    image_robot: np.ndarray,
+    image_robot: np.ndarray | List[np.ndarray],
     image_agents_walk: List[np.ndarray],
     static_image_size: int = 3,
     colorbar: bool = False,
     image_width_multi: float = 1.0,
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
+    robot_names: Optional[List[str]] = None,
 ) -> List[Artist]:
     """Plot the trajectory frame at a specific index
     :param df_trajectories: Dataframe with the trajectories
@@ -302,21 +342,55 @@ def plot_trajectory_frame(
     :return: List of artists for the trajectory frame
     """
     artist = []
-    robot_columns = ["position_x", "position_y", "velocity", "yaw"]
-    plot_agent(
-        ax,
-        df_trajectories.reindex(columns=robot_columns),
-        index,
-        artist,
-        norm,
-        image_robot,
-        static_image_size,
-        desired_width=0.15,
-        image_width_multi=image_width_multi,
-        cmap=plt.cm.Reds,
-        plot_trajectory=plot_trajectory,
-        dynamic_alpha=dynamic_alpha,
-    )
+    if robot_names:
+        robot_cmaps = [
+            plt.cm.Reds,
+            plt.cm.Oranges,
+            plt.cm.Greens,
+            plt.cm.Purples,
+            plt.cm.Greys,
+            plt.cm.YlOrBr,
+        ]
+        for robot_index, robot_name in enumerate(robot_names):
+            robot_column_map = {
+                f"position_x_robot{robot_index}": "position_x",
+                f"position_y_robot{robot_index}": "position_y",
+                f"yaw_robot{robot_index}": "yaw",
+            }
+            robot_df = df_trajectories.reindex(
+                columns=robot_column_map.keys()
+            ).rename(columns=robot_column_map)
+            plot_agent(
+                ax,
+                robot_df,
+                index,
+                artist,
+                norm,
+                image_robot[robot_index],
+                static_image_size,
+                desired_width=0.15,
+                image_width_multi=image_width_multi,
+                cmap=robot_cmaps[robot_index % len(robot_cmaps)],
+                plot_trajectory=plot_trajectory,
+                dynamic_alpha=dynamic_alpha,
+                label=robot_name,
+            )
+    else:
+        robot_columns = ["position_x", "position_y", "velocity", "yaw"]
+        plot_agent(
+            ax,
+            df_trajectories.reindex(columns=robot_columns),
+            index,
+            artist,
+            norm,
+            image_robot,
+            static_image_size,
+            desired_width=0.15,
+            image_width_multi=image_width_multi,
+            cmap=plt.cm.Reds,
+            plot_trajectory=plot_trajectory,
+            dynamic_alpha=dynamic_alpha,
+        )
     plot_agents(
         ax,
         df_trajectories,
@@ -348,6 +422,7 @@ def plot_trajectories(
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
     ax_limits: Optional[List[float]] = None,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> Optional[ArtistAnimation]:
     """Plot the trajectories of the agents
 
@@ -371,8 +446,56 @@ def plot_trajectories(
         (df_trajectories["time"] >= time_start) & (df_trajectories["time"] <= time_end)
     ]
 
-    # agents
     agent_num = df_trajectories.keys().str.contains("position_x_agent").sum()
+    if df_robots:
+        filtered_robots = {
+            name: trajectory[
+                (trajectory["time"] >= time_start)
+                & (trajectory["time"] <= time_end)
+            ]
+            for name, trajectory in df_robots.items()
+        }
+        df_trajectories = _merge_fleet_trajectories(
+            df_trajectories, filtered_robots
+        )
+        norm = pu.find_norm_for_time([df_trajectories], agent_num)
+        robot_names = list(filtered_robots)
+        image_robot, image_agents_walk, _ = pu.get_images_for_experiment(
+            agent_num, robot_names
+        )
+        ani = animate_trajectories(
+            df_trajectories,
+            fig,
+            ax,
+            agent_num,
+            norm,
+            image_robot,
+            image_agents_walk,
+            static_image_size=4,
+            time_freq=time_freq,
+            colorbar=colorbar,
+            animate=animate,
+            image_width_multi=image_width_multi,
+            plot_trajectory=plot_trajectory,
+            dynamic_alpha=dynamic_alpha,
+            robot_names=robot_names,
+        )
+        if ax_limits is not None:
+            pu.set_ax_limits(ax, ax_limits)
+        else:
+            x_columns = [c for c in df_trajectories if c.startswith("position_x_")]
+            y_columns = [c for c in df_trajectories if c.startswith("position_y_")]
+            ax.set_xlim(
+                df_trajectories[x_columns].min().min() - 1,
+                df_trajectories[x_columns].max().max() + 1,
+            )
+            ax.set_ylim(
+                df_trajectories[y_columns].min().min() - 1,
+                df_trajectories[y_columns].max().max() + 1,
+            )
+        return ani
+
+    # agents
     norm = pu.find_norm_for_time([df_trajectories], agent_num)
 
     image_robot, image_agents_walk, image_agents_stand = pu.get_images_for_experiment(

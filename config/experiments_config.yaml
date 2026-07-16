@@ -210,6 +210,26 @@ queue:
     - U_3.U_3
     - U_5.U_5
 
+# Fleet experiment (formation / perturbation tasks): the `robots` mapping keys
+# each robot's name to its odometry topic in the bag; extraction then stores a
+# per-robot dataframe under data["robots"], which the fleet metrics
+# (centroid_*_drift, fleet_*) and `formation_timeseries` consume.
+formation:
+  robots:
+    jackal: /jackal/ground_truth
+    jackal1: /jackal1/ground_truth
+
+  map_file: maps/social_nav_map.yaml
+
+  robot_dynamics:
+    period_for_diff: 5
+    max_velocity: 0.5
+    max_angular_velocity: 0.5
+    alpha: 0.1
+
+  examined_people:
+    - U_1.U_1
+
 split_with_two_entry_points:
   transforms:
     - map_to_base_link:

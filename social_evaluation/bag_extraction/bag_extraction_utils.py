@@ -32,9 +32,11 @@ def get_bag_path(experiment: str, algorithm: str, base_path: str, index: int) ->
     :param index: The index of the experiment
     :return: The path to the bag file
     """
-    model_path = base_path + "/" + experiment + "/" + algorithm
-    model_path = OSPath(model_path)
-    # Check if the path exists    
+    # gazebo_test/real_test layout: <base>/<algorithm>/<experiment>/<algorithm>
+    model_path = OSPath(base_path) / algorithm / experiment / algorithm
+    if not model_path.exists():
+        # legacy layout where base_path already includes the algorithm directory
+        model_path = OSPath(base_path) / experiment / algorithm
     if not model_path.exists():
         raise FileNotFoundError(f"Model path {model_path} does not exist")
     # use experiment_ or scenario_ as prefix depending on the naming convention used in the bags

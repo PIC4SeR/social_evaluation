@@ -37,7 +37,7 @@ import os
 
 def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
     float,
-    pd.DataFrame,
+    Dict[str, pd.DataFrame],
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
@@ -50,10 +50,11 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
     :param bag_file: Path to the bag file
     :param topics: List of topics to extract
 
-    :return: Tuple with the start time and dataframes for odometry, people, tf, path, goal and result
+    :return: Tuple with the start time and dataframes for odometry (one per
+        odometry topic, keyed by topic name), people, tf, path, goal and result
     """
 
-    odometry_rows: List[Dict[str, Any]] = []
+    odometry_rows: Dict[str, List[Dict[str, Any]]] = {}
     people_rows: List[Dict[str, Any]] = []
     tf_rows: List[Dict[str, Any]] = []
     path_rows: List[Dict[str, Any]] = []
@@ -61,12 +62,16 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
     goal_positions: Set[Tuple[float, float]] = set()
     first_timestamp: Optional[float] = None
 
-    for _, msg_type, message, timestamp in iterate_bag_messages(bag_file, topics):
+    for topic_name, msg_type, message, timestamp in iterate_bag_messages(
+        bag_file, topics
+    ):
         if first_timestamp is None:
             first_timestamp = timestamp
         match msg_type:
             case "nav_msgs/msg/Odometry":
-                odometry_rows.append(odometry_msg_to_row(message))
+                odometry_rows.setdefault(topic_name, []).append(
+                    odometry_msg_to_row(message)
+                )
             case "people_msgs/msg/People":
                 people_rows.append(people_msg_to_row(message))
             case "geometry_msgs/msg/PoseStamped":
@@ -88,7 +93,9 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
                 print(f"Unknown message type: {msg_type}")
 
     start_time = first_timestamp if first_timestamp is not None else 0.0
-    df_odometry = odometry_to_df(odometry_rows)
+    odometry_by_topic = {
+        topic: odometry_to_df(rows) for topic, rows in odometry_rows.items()
+    }
     df_people = people_to_df(people_rows)
     df_tf = tf2_messages_to_df(tf_rows)
     df_path = path_to_df(path_rows)
@@ -99,7 +106,7 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
             print("Warning: more than one goal position found, using the first entry.")
         goal = goal_positions.pop()
 
-    return start_time, df_odometry, df_people, df_tf, df_path, goal, df_result
+    return start_time, odometry_by_topic, df_people, df_tf, df_path, goal, df_result
 
 
 def extract_transforms_from_dataframes(
@@ -158,22 +165,48 @@ def extract_data_from_bag(
     :param exp_config: Configuration for the experiment
     :param time_limit: Time limit for the experiment (relative to the start time)
 
-    :return: Dictionary with the extracted data
+    :return: Dictionary with the extracted data. If the experiment config has a
+        ``robots: {name: odometry_topic}`` mapping (multi-robot fleets), the
+        result also contains ``robots: {name: df_odometry}``.
     """
 
     # set logger level to warning to avoid printing too many messages
     set_logger_level("rosbag2_storage", 30)
+    robots_config: Dict[str, str] = exp_config.get("robots") or {}
+    topics = list(topics) + [
+        topic for topic in robots_config.values() if topic not in topics
+    ]
     (
         start_time,
-        df_odometry,
+        odometry_by_topic,
         df_people,
         df_tf,
         df_path,
         goal,
         df_result,
     ) = extract_topics_from_bag(bag_file, topics)
+    df_robots = {
+        name: odometry_by_topic.get(topic, pd.DataFrame())
+        for name, topic in robots_config.items()
+    }
+    # Back-compat single-robot dataframe: the configured topic if given,
+    # otherwise the only (or first) odometry topic in the bag.
+    robot_odometry_topic = exp_config.get("robot_odometry_topic")
+    if robot_odometry_topic is not None:
+        df_odometry = odometry_by_topic.get(robot_odometry_topic, pd.DataFrame())
+    elif odometry_by_topic:
+        if len(odometry_by_topic) > 1 and not robots_config:
+            print(
+                "Warning: multiple odometry topics found "
+                f"({sorted(odometry_by_topic)}); using the first. Set "
+                "'robot_odometry_topic' or a 'robots' mapping in the experiment "
+                "config to disambiguate."
+            )
+        df_odometry = next(iter(odometry_by_topic.values()))
+    else:
+        df_odometry = pd.DataFrame()
     transforms = extract_transforms_from_dataframes(
-        df_tf, exp_config["transforms"], exp_config["robot_dynamics"]
+        df_tf, exp_config.get("transforms", []), exp_config["robot_dynamics"]
     )
     df_agents_list = []
     for person in exp_config["examined_people"]:
@@ -191,6 +224,8 @@ def extract_data_from_bag(
         df_odometry = filter_df_by_time(df_odometry, start_time, end_time)
         df_people = filter_df_by_time(df_people, start_time, end_time)
         df_path = filter_df_by_time(df_path, start_time, end_time)
+        for name, df_robot in df_robots.items():
+            df_robots[name] = filter_df_by_time(df_robot, start_time, end_time)
         for transform_name, transform in transforms.items():
             transforms[transform_name] = filter_df_by_time(
                 transform, start_time, end_time
@@ -201,6 +236,7 @@ def extract_data_from_bag(
 
     return {
         "odometry": df_odometry,
+        "robots": df_robots,
         "people": df_people,
         "path": df_path,
         "agents": df_agents_list,
@@ -239,27 +275,28 @@ def extract_data_from_experiments(
         desc="Extracting bags",
         leave=False,
     ):
-        if base_output_path is None:
-            experiment_data = data
-            experiment_output_path = None
-        else:
-            experiment_output_path = get_experiment_output_path(
-                base_output_path, experiment_name
-            )
-            experiment_data = {}
-            if experiment_output_path.exists():
-                with open(experiment_output_path, "rb") as file:
-                    experiment_data = pickle.load(file)
-                data.update(experiment_data)
-                tqdm.write(
-                    f"Loaded {len(experiment_data)} cached entries for {experiment_name}"
-                )
-
         for algorithm in tqdm(
             algorithms,
             desc=f"Extracting bags for {experiment_name}",
             leave=False,
         ):
+            if base_output_path is None:
+                experiment_data = data
+                experiment_output_path = None
+            else:
+                experiment_output_path = get_experiment_output_path(
+                    base_output_path, experiment_name, algorithm
+                )
+                experiment_data = {}
+                if experiment_output_path.exists():
+                    with open(experiment_output_path, "rb") as file:
+                        experiment_data = pickle.load(file)
+                    data.update(experiment_data)
+                    tqdm.write(
+                        f"Loaded {len(experiment_data)} cached entries for "
+                        f"{algorithm}/{experiment_name}"
+                    )
+
             for i in tqdm(
                 experiment_ids,
                 desc=f"Extracting bags for {experiment_name} with {algorithm}",
@@ -286,21 +323,20 @@ def extract_data_from_experiments(
                     save_data(experiment_data, experiment_output_path)
                 elif output_file is not None:
                     save_data(data, output_file)
-        if base_output_path is not None:
-            data.update(experiment_data)
+            if base_output_path is not None:
+                data.update(experiment_data)
     return data
 
 
-def get_experiment_output_path(base_output_path: Path, experiment_name: str) -> Path:
-    """Return the per-experiment pickle path under the provided base directory."""
+def get_experiment_output_path(
+    base_output_path: Path, experiment_name: str, algorithm: Optional[str] = None
+) -> Path:
+    """Return the per-algorithm, per-experiment pickle path, mirroring the
+    extracted_bags layout: <base>/<algorithm>/<experiment_name>.pickle"""
 
+    directory = base_output_path / algorithm if algorithm else base_output_path
     experiment_relative = Path(experiment_name)
-    parts = experiment_relative.parts
-    directory = base_output_path
-    if len(parts) > 1:
-        directory = directory.joinpath(*parts[:-1])
-    filename = f"{experiment_relative.name}.pickle"
-    return directory / filename
+    return directory / experiment_relative.parent / f"{experiment_relative.name}.pickle"
 
 
 def extract_obstacle_data(

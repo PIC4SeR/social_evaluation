@@ -68,6 +68,7 @@ def evaluate_selected_metrics(
     transforms = data["transforms"]
     goal = data["goal"]
     df_results = data["result"] if "result" in data else None
+    df_robots = data.get("robots") or {}
 
     # check dtypes
     for df in df_agents_list:
@@ -90,6 +91,7 @@ def evaluate_selected_metrics(
         config,
         metrics_list,
         df_results=df_results,
+        df_robots=df_robots,
     )
 
     return results, results_df
@@ -105,6 +107,7 @@ def evaluate_metrics(
     config: Dict[str, Any],
     metrics: List[str],
     df_results: Optional[pd.DataFrame] = None,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """Evaluate the metrics on the data
 
@@ -135,6 +138,7 @@ def evaluate_metrics(
             df_obstacles=df_obstacles,
             goal=goal,
             df_results=df_results,
+            df_robots=df_robots,
             **config,
         )
         if isinstance(result, Tuple):

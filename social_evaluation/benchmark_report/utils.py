@@ -393,6 +393,7 @@ def load_metrics_from_dir(
             metrics = load_metrics(
                 file, experiment_name=experiment_name, algorithm_name=algorithm_name
             )
+            metrics["source_dir"] = str(file.parent.relative_to(dir_path))
             all_metrics.append(metrics)
 
     if not all_metrics:

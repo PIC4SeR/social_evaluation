@@ -232,6 +232,7 @@ def plot_experiment_single(
     :return: Animation object with the trajectories of the experiment
     """
     df_odometry = pd.DataFrame(data[exp]["odometry"])
+    df_robots = data[exp].get("robots") or {}
     df_people = pd.DataFrame(data[exp]["people"])
     df_agents_list = data[exp]["agents"]
     df_obstacles = data[exp]["obstacles"]
@@ -263,6 +264,7 @@ def plot_experiment_single(
         use_odometry=use_odometry,
         dynamic_alpha=dynamic_alpha,
         plot_trajectory=plot_trajectory,
+        df_robots=df_robots,
     )
     return ani
 
@@ -288,6 +290,7 @@ def plot_data(
     use_odometry: bool = False,
     dynamic_alpha: bool = True,
     plot_trajectory: bool = True,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> ArtistAnimation | None:
     """Plot the data in a single plot
 
@@ -336,6 +339,7 @@ def plot_data(
         ax_limits=ax_limits,
         dynamic_alpha=dynamic_alpha,
         plot_trajectory=plot_trajectory,
+        df_robots=df_robots,
     )
 
     ax.set_xlabel("X (m)", fontsize=fontsize)
@@ -512,18 +516,18 @@ def main():
 
     override_missing_goals_with_config(data, config.get("experiments", {}))
 
+    def parse_bag_key(exp: str) -> Tuple[str, str]:
+        """Bag keys look like .../<env>/<episode>/<algorithm>/experiment_<i>/*.db3;
+        return ("<env>/<episode>", "<algorithm>")."""
+        parts = exp.split("/")
+        return "/".join(parts[-5:-3]), parts[-3]
+
     experiment_algorithm = {}
     for exp in data.keys():
-
-        experiment_name = exp.split("/")[-4]
-        algorithm_name = exp.split("/")[-3]
-        if f"{experiment_name}_{algorithm_name}" not in experiment_algorithm:
-            experiment_algorithm[f"{experiment_name}_{algorithm_name}"] = []
-        experiment_algorithm[f"{experiment_name}_{algorithm_name}"].append(exp)
+        experiment_algorithm.setdefault(parse_bag_key(exp), []).append(exp)
     if plot_single:
         for i, exp in enumerate(tqdm(data.keys(), desc=f"Plotting experiments")):
-            experiment_name = exp.split("/")[-4]
-            algorithm_name = exp.split("/")[-3]
+            experiment_name, algorithm_name = parse_bag_key(exp)
             exp_id = exp.split("_")[-2]
 
             fig, ax = plt.subplots()
@@ -539,8 +543,9 @@ def main():
                 colorbar=plot_colorbar,
                 image_width_multi=image_width_multi,
                 fontsize=fontsize,
+                # config experiments are keyed by episode only, not <env>/<episode>
                 ax_limits=config["experiments"]
-                .get(experiment_name, {})
+                .get(experiment_name.split("/")[-1], {})
                 .get("ax_limits", None),
                 use_odometry=use_odometry,
                 dynamic_alpha=dynamic_alpha,
@@ -591,7 +596,7 @@ def main():
             if plot_aggregated:
                 fig, ax = plt.subplots()
                 fig.set_size_inches(10, 10)
-                experiment_name, algorithm_name = exp.split("_")
+                experiment_name, algorithm_name = exp
 
                 ani = plot_experiment_aggregate(
                     data,
