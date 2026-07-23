@@ -2,6 +2,7 @@
 # PYTHON_ARGCOMPLETE_OK
 from social_evaluation.bag_extraction import (
     odometry_to_df,
+    vector3_to_df,
     people_to_df,
     path_to_df,
     string_to_df,
@@ -20,6 +21,7 @@ from social_evaluation.bag_extraction.bag_extraction_utils import (
     path_msg_to_row,
     tf_message_to_row,
     string_msg_to_row,
+    vector3_msg_to_row,
 )
 from social_evaluation.common import get_map_data, retrieve_obstacle_positions
 import social_evaluation
@@ -38,6 +40,7 @@ import os
 def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
     float,
     Dict[str, pd.DataFrame],
+    Dict[str, pd.DataFrame],
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
@@ -50,11 +53,13 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
     :param bag_file: Path to the bag file
     :param topics: List of topics to extract
 
-    :return: Tuple with the start time and dataframes for odometry (one per
-        odometry topic, keyed by topic name), people, tf, path, goal and result
+    :return: Tuple with the start time and dataframes for odometry and
+        social memory (one per topic, keyed by topic name), people, tf, path,
+        goal and result
     """
 
     odometry_rows: Dict[str, List[Dict[str, Any]]] = {}
+    memory_rows: Dict[str, List[Dict[str, Any]]] = {}
     people_rows: List[Dict[str, Any]] = []
     tf_rows: List[Dict[str, Any]] = []
     path_rows: List[Dict[str, Any]] = []
@@ -89,12 +94,19 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
                 path_rows.append(path_msg_to_row(message))
             case "std_msgs/msg/String":
                 result_rows.append(string_msg_to_row(message))
+            case "geometry_msgs/msg/Vector3Stamped":
+                memory_rows.setdefault(topic_name, []).append(
+                    vector3_msg_to_row(message)
+                )
             case _:
                 print(f"Unknown message type: {msg_type}")
 
     start_time = first_timestamp if first_timestamp is not None else 0.0
     odometry_by_topic = {
         topic: odometry_to_df(rows) for topic, rows in odometry_rows.items()
+    }
+    memory_by_topic = {
+        topic: vector3_to_df(rows) for topic, rows in memory_rows.items()
     }
     df_people = people_to_df(people_rows)
     df_tf = tf2_messages_to_df(tf_rows)
@@ -106,7 +118,16 @@ def extract_topics_from_bag(bag_file: Path, topics: List[str]) -> Tuple[
             print("Warning: more than one goal position found, using the first entry.")
         goal = goal_positions.pop()
 
-    return start_time, odometry_by_topic, df_people, df_tf, df_path, goal, df_result
+    return (
+        start_time,
+        odometry_by_topic,
+        memory_by_topic,
+        df_people,
+        df_tf,
+        df_path,
+        goal,
+        df_result,
+    )
 
 
 def extract_transforms_from_dataframes(
@@ -173,12 +194,19 @@ def extract_data_from_bag(
     # set logger level to warning to avoid printing too many messages
     set_logger_level("rosbag2_storage", 30)
     robots_config: Dict[str, str] = exp_config.get("robots") or {}
+    # swarm_control publishes each worker's social memory under its own
+    # namespace; the recorder writes it as /<robot>/social_memory. Absent for
+    # any other controller, in which case df_memory is simply empty.
+    memory_topics = {name: f"/{name}/social_memory" for name in robots_config}
     topics = list(topics) + [
-        topic for topic in robots_config.values() if topic not in topics
+        topic
+        for topic in list(robots_config.values()) + list(memory_topics.values())
+        if topic not in topics
     ]
     (
         start_time,
         odometry_by_topic,
+        memory_by_topic,
         df_people,
         df_tf,
         df_path,
@@ -188,6 +216,11 @@ def extract_data_from_bag(
     df_robots = {
         name: odometry_by_topic.get(topic, pd.DataFrame())
         for name, topic in robots_config.items()
+    }
+    df_memory = {
+        name: memory_by_topic[topic]
+        for name, topic in memory_topics.items()
+        if not memory_by_topic.get(topic, pd.DataFrame()).empty
     }
     # Back-compat single-robot dataframe: the configured topic if given,
     # otherwise the only (or first) odometry topic in the bag.
@@ -226,6 +259,8 @@ def extract_data_from_bag(
         df_path = filter_df_by_time(df_path, start_time, end_time)
         for name, df_robot in df_robots.items():
             df_robots[name] = filter_df_by_time(df_robot, start_time, end_time)
+        for name, df_z in df_memory.items():
+            df_memory[name] = filter_df_by_time(df_z, start_time, end_time)
         for transform_name, transform in transforms.items():
             transforms[transform_name] = filter_df_by_time(
                 transform, start_time, end_time
@@ -237,6 +272,7 @@ def extract_data_from_bag(
     return {
         "odometry": df_odometry,
         "robots": df_robots,
+        "memory": df_memory,
         "people": df_people,
         "path": df_path,
         "agents": df_agents_list,

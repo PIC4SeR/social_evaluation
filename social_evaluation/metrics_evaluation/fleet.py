@@ -6,12 +6,17 @@ the experiment config declares a ``robots: {name: odometry_topic}`` mapping
 
 * **Centroid drift** -- distance of the fleet's live centroid from a hold
   point (``hold_point`` from the metrics config, defaulting to the centroid at
-  the first timestamp), the direct offline counterpart of the perturbation
-  task's drift monitor.
+  the first timestamp). Descriptive, not a verdict: the perturbation task lets
+  the centroid settle away from the hold point, so its stability is scored by
+  ``centroid_settled_motion`` (did it stop moving?) and
+  ``formation_spread_growth`` (did the robots stay together?) instead.
 * **Social potential** -- the same asymmetric Gaussian potential
   ``J = A_soc * exp(-0.5 r' Sigma^-1 r)`` that drives ``swarm_control``
   (`controller.py`), summed over robots x humans at each timestep. Parameter
   defaults mirror ``swarm_control.controller.SocialCost``.
+* **Social memory** -- ``swarm_control``'s internal ``z`` state as recorded on
+  ``/<robot>/social_memory`` (``run_data["memory"]``), merged over the fleet.
+  Read, not recomputed; empty under any other controller.
 * **Fleet aggregations** -- existing single-robot metrics evaluated per robot
   and reduced over the fleet (e.g. min distance to any human by any robot).
 
@@ -89,6 +94,27 @@ def centroid_drift_series(
     return series
 
 
+def formation_spread_series(df_robots: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """RMS distance of the robots from their own centroid over time.
+
+    Size of the formation regardless of where it sits: constant while the shape
+    holds, growing without bound if the fleet falls apart.
+
+    :param df_robots: Mapping of robot name to its odometry dataframe
+    :return: Dataframe with ``time`` and ``spread``
+    """
+    merged = merge_fleet_positions(df_robots)
+    if merged.empty:
+        return pd.DataFrame()
+    xs = merged[[c for c in merged.columns if c.startswith("position_x_")]]
+    ys = merged[[c for c in merged.columns if c.startswith("position_y_")]]
+    dx = xs.sub(xs.mean(axis=1), axis=0)
+    dy = ys.sub(ys.mean(axis=1), axis=0)
+    series = merged[["time"]].copy()
+    series["spread"] = np.sqrt((dx**2).mean(axis=1) + (dy**2).mean(axis=1))
+    return series
+
+
 def social_potential_series(
     df_robots: Dict[str, pd.DataFrame],
     df_agents_list: List[pd.DataFrame],
@@ -157,6 +183,46 @@ def social_potential_series(
     return per_robot
 
 
+def social_memory_series(df_memory: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Each worker's social-memory state ``z`` over time, as recorded.
+
+    ``z`` is internal ``swarm_control`` worker state (``z <- z(1 - k_z) +
+    u_social``) that each worker publishes on ``/<robot>/social_memory``; bag
+    extraction hands it over as ``run_data["memory"]``. Empty for runs under any
+    other controller, and for bags recorded before the topic existed.
+
+    :param df_memory: Mapping of robot name to its social-memory dataframe
+        (``time``, ``x``, ``y``), as produced by bag extraction
+    :return: Dataframe with ``time``, ``z_x_<name>``/``z_y_<name>``/
+        ``z_norm_<name>`` per robot, and the fleet means ``z_x``, ``z_y``,
+        ``z_norm``
+    """
+    if not df_memory:
+        return pd.DataFrame()
+    merged: Optional[pd.DataFrame] = None
+    for name, df_z in df_memory.items():
+        if df_z.empty:
+            continue
+        cols = df_z[["time", "x", "y"]].astype(float).rename(
+            columns={"x": f"z_x_{name}", "y": f"z_y_{name}"}
+        )
+        merged = cols if merged is None else merged.merge(cols, on="time", how="outer")
+    if merged is None:
+        return pd.DataFrame()
+    merged.sort_values("time", kind="stable", inplace=True, ignore_index=True)
+    value_cols = [c for c in merged.columns if c != "time"]
+    merged[value_cols] = merged[value_cols].interpolate(limit_direction="both")
+    merged.dropna(inplace=True)
+    merged.reset_index(drop=True, inplace=True)
+    for name in [c.removeprefix("z_x_") for c in merged.columns if c.startswith("z_x_")]:
+        merged[f"z_norm_{name}"] = np.hypot(merged[f"z_x_{name}"], merged[f"z_y_{name}"])
+    for axis in ("x", "y", "norm"):
+        merged[f"z_{axis}"] = merged[
+            [c for c in merged.columns if c.startswith(f"z_{axis}_")]
+        ].mean(axis=1)
+    return merged
+
+
 def _no_fleet_data(metric_name: str) -> Tuple[float, pd.DataFrame]:
     print(f"{metric_name}: no fleet data ('robots' missing/empty), returning NaN")
     return np.nan, pd.DataFrame()
@@ -196,6 +262,58 @@ def centroid_mean_drift(
     if series.empty:
         return _no_fleet_data("centroid_mean_drift")
     return float(series["drift"].mean()), series
+
+
+@metric("centroid_settled_motion")
+def centroid_settled_motion(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    hold_point: Optional[Tuple[float, float]] = None,
+    settle_window: float = 10.0,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Peak excursion of the centroid from its own mean over the last window.
+
+    The convergence half of the stability check, and deliberately pose-free: the
+    perturbation is allowed to leave the fleet parked somewhere other than where
+    it started, so what is scored is that the centroid *stopped moving*, not
+    where it stopped. Near zero => settled; large => still being pushed around
+    at the end of the episode.
+    """
+    if not df_robots:
+        return _no_fleet_data("centroid_settled_motion")
+    series = centroid_drift_series(df_robots, hold_point)
+    if series.empty:
+        return _no_fleet_data("centroid_settled_motion")
+    tail = series[series["time"] >= series["time"].iloc[-1] - float(settle_window)]
+    excursion = np.hypot(
+        tail["centroid_x"] - tail["centroid_x"].mean(),
+        tail["centroid_y"] - tail["centroid_y"].mean(),
+    )
+    return float(excursion.max()), series
+
+
+@metric("formation_spread_growth")
+def formation_spread_growth(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Peak formation size relative to its starting size (1.0 = shape held).
+
+    The divergence half of the stability check: the centroid can settle while
+    the robots themselves scatter, and this catches that.
+    """
+    if not df_robots:
+        return _no_fleet_data("formation_spread_growth")
+    series = formation_spread_series(df_robots)
+    if series.empty or series["spread"].iloc[0] <= 0.0:
+        return _no_fleet_data("formation_spread_growth")
+    return float(series["spread"].max() / series["spread"].iloc[0]), series
 
 
 @metric("fleet_social_potential_mean")

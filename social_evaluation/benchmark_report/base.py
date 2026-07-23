@@ -39,7 +39,7 @@ def _apply_benchmark_report_rcparams() -> None:
     plt.rcParams.update({"font.size": 20})
     plt.rcParams["text.usetex"] = True
     plt.rcParams["font.family"] = "serif"
-    plt.rcParams["font.serif"] = ["Times New Roman"]
+    plt.rcParams["font.serif"] = ["Times New Roman","Regular","Tinos"]
     plt.rcParams["font.weight"] = "bold"
 
 

@@ -5,6 +5,7 @@ import pytest
 from social_evaluation.metrics_evaluation import metrics_dict
 from social_evaluation.metrics_evaluation.fleet import (
     centroid_drift_series,
+    social_memory_series,
     social_potential_series,
 )
 
@@ -39,6 +40,18 @@ def _agent_df(xs, ys, yaw=0.0, vx=0.0, vy=0.0, times=None):
     )
 
 
+def _memory_df(xs, ys, times=None):
+    times = times if times is not None else np.arange(len(xs), dtype=float)
+    return pd.DataFrame(
+        {
+            "time": times,
+            "x": np.asarray(xs, dtype=float),
+            "y": np.asarray(ys, dtype=float),
+            "z": np.zeros(len(xs)),
+        }
+    )
+
+
 def test_centroid_drift_symmetric_fleet_stays_at_zero():
     # Two robots moving symmetrically about (0, 0): centroid never moves.
     df_robots = {
@@ -60,6 +73,51 @@ def test_centroid_drift_against_explicit_hold_point():
     )
     assert scalar == pytest.approx(1.0)
     assert list(series.columns[:3]) == ["time", "centroid_x", "centroid_y"]
+
+
+def test_settled_motion_accepts_a_centroid_parked_somewhere_new():
+    # Pushed off the hold point and left there, but steady once the humans are
+    # gone: that is convergence. Drift still reads 5 m, which is why it is not
+    # the verdict.
+    xs = [0.0, 2.0, 5.0, 5.0, 5.0, 5.0]
+    df_robots = {"r1": _robot_df(xs, [0.0] * len(xs))}
+    peak, _ = metrics_dict["centroid_max_drift"](
+        [], pd.DataFrame(), df_robots=df_robots, hold_point=(0.0, 0.0)
+    )
+    settled, _ = metrics_dict["centroid_settled_motion"](
+        [], pd.DataFrame(), df_robots=df_robots, settle_window=2.0
+    )
+    assert peak == pytest.approx(5.0)
+    assert settled == pytest.approx(0.0)
+
+
+def test_settled_motion_flags_a_centroid_still_moving():
+    # Same run, but the centroid never stops: the tail still swings +-0.5 m
+    # about its own mean of 4.5.
+    xs = [0.0, 2.0, 5.0, 4.0, 5.0, 4.0]
+    df_robots = {"r1": _robot_df(xs, [0.0] * len(xs))}
+    settled, _ = metrics_dict["centroid_settled_motion"](
+        [], pd.DataFrame(), df_robots=df_robots, settle_window=3.0
+    )
+    assert settled == pytest.approx(0.5)
+
+
+def test_spread_growth_flags_a_diverging_formation():
+    # Two robots holding 2 m apart, then drifting to 6 m apart: 3x the size.
+    held = {
+        "r1": _robot_df([1.0, 1.0, 1.0], [0.0, 0.0, 0.0]),
+        "r2": _robot_df([-1.0, -1.0, -1.0], [0.0, 0.0, 0.0]),
+    }
+    diverging = {
+        "r1": _robot_df([1.0, 2.0, 3.0], [0.0, 0.0, 0.0]),
+        "r2": _robot_df([-1.0, -2.0, -3.0], [0.0, 0.0, 0.0]),
+    }
+    assert metrics_dict["formation_spread_growth"](
+        [], pd.DataFrame(), df_robots=held
+    )[0] == pytest.approx(1.0)
+    assert metrics_dict["formation_spread_growth"](
+        [], pd.DataFrame(), df_robots=diverging
+    )[0] == pytest.approx(3.0)
 
 
 def test_social_potential_matches_closed_form():
@@ -101,3 +159,23 @@ def test_fleet_metrics_return_nan_without_fleet_data():
         [], pd.DataFrame(), df_robots=None
     )
     assert np.isnan(scalar) and series.empty
+
+
+def test_social_memory_merges_the_recorded_workers():
+    # Two workers' recorded z on different time bases: interpolated onto one,
+    # per-robot norms kept, fleet means alongside.
+    df_memory = {
+        "r1": _memory_df([0.0, 3.0], [0.0, 4.0], times=[0.0, 2.0]),
+        "r2": _memory_df([1.0, 1.0, 1.0], [0.0, 0.0, 0.0]),
+    }
+    series = social_memory_series(df_memory)
+    assert series["z_norm_r1"].iloc[-1] == pytest.approx(5.0)
+    # r1 is interpolated to (1.5, 2.0) at t=1, so the mean x is (1.5 + 1)/2.
+    at_one = series[series["time"] == 1.0].iloc[0]
+    assert at_one["z_x"] == pytest.approx(1.25)
+    assert at_one["z_y"] == pytest.approx(1.0)
+
+
+def test_social_memory_empty_without_a_swarm_controller():
+    # Any controller other than swarm_control never publishes the topic.
+    assert social_memory_series({}).empty

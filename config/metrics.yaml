@@ -49,8 +49,19 @@ metrics:
   # `hold_point: [x, y]` entry in metrics_config. The social potential uses
   # the swarm_control SocialCost defaults; override A_soc, sigma_front0, k_v,
   # sigma_rear, sigma_left, sigma_right in metrics_config.
+  # For the perturbation task (a stability test) score centroid_settled_motion
+  # + formation_spread_growth: the fleet may end up parked away from the hold
+  # point, so what counts is that the centroid stopped moving and the robots
+  # stayed together. The drift metrics are descriptive -- their peak is the
+  # transient the humans are meant to cause, not a defect. settle_window (s,
+  # default 10) sets how much of the tail counts as settled.
+  # For the formation task the centroid is *supposed* to travel, so only
+  # formation_spread_growth carries over (did the shape survive the trip?); the
+  # per-robot social metrics above come from the evaluator as usual.
   # - centroid_max_drift
   # - centroid_mean_drift
+  # - centroid_settled_motion
+  # - formation_spread_growth
   # - fleet_social_potential_mean
   # - fleet_social_potential_max
   # - fleet_min_distance_to_people

@@ -15,11 +15,19 @@ from people_msgs.msg import People, Person
 from nav_msgs.msg import Odometry, Path as NavPath
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Vector3Stamped
 from typing import List, Tuple, Union, Dict, Type, Iterable, Iterator, Optional, Set, Any
 
 MsgType = Union[
-    Odometry, People, LaserScan, PoseStamped, TFMessage, NavPath, String, Person
+    Odometry,
+    People,
+    LaserScan,
+    PoseStamped,
+    TFMessage,
+    NavPath,
+    String,
+    Person,
+    Vector3Stamped,
 ]
 
 
@@ -240,6 +248,26 @@ def tf_message_to_row(msg: TFMessage) -> Dict[str, Any]:
 
 def string_msg_to_row(msg: String) -> Dict[str, Any]:
     return {"data": msg.data}
+
+
+def vector3_msg_to_row(msg: Vector3Stamped) -> Dict[str, Any]:
+    time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+    return {"time": time, "x": msg.vector.x, "y": msg.vector.y, "z": msg.vector.z}
+
+
+def vector3_to_df(
+    vector_msgs: Iterable[Union[Vector3Stamped, Dict[str, Any]]]
+) -> pd.DataFrame:
+    """Convert Vector3Stamped data to a DataFrame.
+
+    :param vector_msgs: Iterable of Vector3Stamped messages or prepared row dicts
+    :return: DataFrame with ``time``, ``x``, ``y``, ``z``
+    """
+    rows = [
+        vector3_msg_to_row(msg) if isinstance(msg, Vector3Stamped) else msg
+        for msg in vector_msgs
+    ]
+    return pd.DataFrame([pd.Series(row) for row in rows if row])
 
 
 def odometry_to_df(
