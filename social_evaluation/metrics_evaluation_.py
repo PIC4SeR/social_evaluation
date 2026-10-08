@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
+from social_evaluation.common import path_contains
 from social_evaluation.metrics_evaluation import metrics_dict
+from social_evaluation.metrics_evaluation.metrics_utils import radius_for
 import pandas as pd
 from typing import Dict, Any, Union, List, Tuple, Optional
 from pathlib import Path, PosixPath
@@ -8,12 +10,61 @@ import argcomplete, argparse
 import yaml
 import pickle
 import json
+import re
 import numpy as np
 from tqdm import tqdm
 
 # Default Likert survey dimensions aggregated (mean over participants) per run.
 # Override via the ``survey_fields`` key in the metrics YAML.
 SURVEY_FIELDS = ["safety", "friendliness", "naturalness", "avoidance_foresight"]
+
+# How a fleet's per-robot values of a single-robot metric become the fleet
+# value reported under the metric's own name: the worst robot for distances
+# (smallest), space intrusions and collisions (largest); the mean otherwise.
+_FLEET_WORST_LOW = {"minimum_distance_to_people", "avg_distance_to_closest_person"}
+_FLEET_WORST_HIGH_SUFFIXES = ("_space_intrusions", "_collision")
+
+
+def fleet_value(metric: str, values: List[Any]) -> float:
+    """The fleet value of ``metric`` from its per-robot values (NaN if none)."""
+    numbers = np.array(
+        [np.nan if v is None else v for v in values], dtype=float
+    )
+    if numbers.size == 0 or np.all(np.isnan(numbers)):
+        return np.nan
+    if metric in _FLEET_WORST_LOW:
+        return float(np.nanmin(numbers))
+    if metric.endswith(_FLEET_WORST_HIGH_SUFFIXES):
+        return float(np.nanmax(numbers))
+    return float(np.nanmean(numbers))
+
+
+def _is_fleet_metric(metric: str) -> bool:
+    """Metrics defined in metrics_evaluation/fleet.py already use every robot."""
+    return metrics_dict[metric].__module__.endswith(".fleet")
+
+
+def _run_id(path: Any, fallback: int) -> int:
+    """The run number a bag path encodes (``.../experiment_<N>/...``).
+
+    Numbering runs by their position in the list shifted every later run onto
+    the wrong outcome as soon as one run was missing from the data."""
+    found = re.findall(r"experiment_(\d+)", str(path))
+    return int(found[-1]) if found else fallback
+
+
+def _empty_run(run: Dict[str, Any]) -> bool:
+    """A run with nothing to measure: no robot poses, or no pedestrian stamps
+    (e.g. a run the harness cancelled a second after it started)."""
+    people = run.get("people")
+    if people is None or "time" not in getattr(people, "columns", ()):
+        return True
+    robots = run.get("robots") or {}
+    odometry = run.get("odometry")
+    has_poses = any(len(df) for df in robots.values()) or (
+        odometry is not None and len(odometry) > 0
+    )
+    return not has_poses
 
 
 def evaluate_algorithm(
@@ -40,10 +91,15 @@ def evaluate_algorithm(
             leave=False,
         )
     ):
-        results, _ = evaluate_selected_metrics(data[path], config, metrics)
+        if _empty_run(data[path]):
+            # Keep the row, so the run still lines up with its outcome.
+            tqdm.write(f"Warning: nothing to measure in {path}; metrics left NaN")
+            results = pd.Series({m: np.nan for m in metrics["metrics"]}, dtype=float)
+        else:
+            results, _ = evaluate_selected_metrics(data[path], config, metrics)
         results["experiment"] = experiment
         results["algorithm"] = algorithm
-        results["run"] = i + 1
+        results["run"] = _run_id(path, i + 1)
         series.append(results)
     df = pd.DataFrame(series)
     return df
@@ -122,34 +178,50 @@ def evaluate_metrics(
     :return: Series with the results of the evaluation
     """
 
-    # Compute the metrics for the experiment
+    # Compute the metrics for the experiment. In a fleet run (two or more
+    # robots) a single-robot metric is measured on EVERY robot, each with its
+    # own radius: ``<metric>@<robot>`` per robot, and the fleet value under the
+    # metric's own name (fleet_value). Before 2026-09-17 it was measured on the
+    # first robot only.
+    fleet = {name: df for name, df in (df_robots or {}).items() if not df.empty}
+    context = dict(
+        df_obstacles=df_obstacles,
+        goal=goal,
+        df_results=df_results,
+        df_robots=df_robots,
+    )
     metrics_results = {}
     metrics_df = {}
     for metric in metrics:
+        function = metrics_dict[metric]
+        if len(fleet) >= 2 and not _is_fleet_metric(metric):
+            values, frames = {}, {}
+            for name, df_robot in fleet.items():
+                options = {**config, "robot_radius": radius_for(name, config)}
+                result = function(df_agents_list, df_robot.copy(), **context, **options)
+                values[name], frames[name] = _split_result(result)
+                metrics_results[f"{metric}@{name}"] = values[name]
+            metrics_results[metric] = fleet_value(metric, list(values.values()))
+            metrics_df[metric] = frames
+            continue
+
         robot_data = None
         if "map_to_base_link" in transforms:
             robot_data = transforms["map_to_base_link"].copy()
         else:
             robot_data = df_odometry.copy()
-
-        result = metrics_dict[metric](
-            df_agents_list,
-            robot_data,
-            df_obstacles=df_obstacles,
-            goal=goal,
-            df_results=df_results,
-            df_robots=df_robots,
-            **config,
-        )
-        if isinstance(result, Tuple):
-            metrics_results[metric] = result[0]
-            metrics_df[metric] = result[1]
-        else:
-            metrics_results[metric] = result
-            metrics_df[metric] = pd.DataFrame()
+        result = function(df_agents_list, robot_data, **context, **config)
+        metrics_results[metric], metrics_df[metric] = _split_result(result)
 
     metrics_results = pd.Series(metrics_results)
     return metrics_results, metrics_df
+
+
+def _split_result(result: Any) -> Tuple[Any, pd.DataFrame]:
+    """(scalar, series) from a metric's return value."""
+    if isinstance(result, Tuple):
+        return result[0], result[1]
+    return result, pd.DataFrame()
 
 
 def _aggregate_survey(raw: Any, survey_fields: List[str]) -> Dict[str, float]:
@@ -240,19 +312,6 @@ def evaluate_data(
     experiment_names = list(config["experiment_names"])
     algorithms = list(config["algorithms"])
     metrics_config = metrics["metrics_config"]
-
-    def path_contains(path_key: str, name: str) -> bool:
-        """True if *name* appears as a contiguous run of path segments in *path_key*.
-
-        Segment-based (so ``crossing1`` never matches ``crossing10``) while still
-        supporting multi-segment names like ``crossing1/crossing1``.
-        """
-        segments = path_key.split("/")
-        name_segments = name.split("/")
-        return any(
-            segments[i : i + len(name_segments)] == name_segments
-            for i in range(len(segments) - len(name_segments) + 1)
-        )
 
     # find all the paths that contain the experiment names and the algorithms
     paths_list = {}

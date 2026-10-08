@@ -179,3 +179,50 @@ def test_social_memory_merges_the_recorded_workers():
 def test_social_memory_empty_without_a_swarm_controller():
     # Any controller other than swarm_control never publishes the topic.
     assert social_memory_series({}).empty
+
+
+def _stamped_like_a_bag(df, copies=4, columns=("position_x", "x")):
+    """Every row repeated at the same stamp with a drifting value -- what a
+    20-40 Hz topic looks like on the simulator's 10 Hz clock."""
+    rows = []
+    for _, row in df.iterrows():
+        for c in range(copies):
+            row = row.copy()
+            for column in columns:
+                if column in row:
+                    row[column] = row[column] + 0.01
+            rows.append(row)
+    return pd.DataFrame(rows).reset_index(drop=True)
+
+
+def test_duplicate_stamps_do_not_multiply_the_merged_series():
+    """Outer merges on a non-unique time are cartesian products: three robots
+    at 4 rows per stamp used to give 64 rows per stamp per series, compounded
+    again when the series were merged (46 GB on one 40 s run)."""
+    from social_evaluation.formation_timeseries_ import run_timeseries
+    from social_evaluation.metrics_evaluation.fleet import (
+        command_input_series,
+        merge_fleet_positions,
+    )
+
+    stamps = 30
+    robots = {
+        name: _stamped_like_a_bag(_robot_df(np.linspace(0.0, 1.0, stamps) + k,
+                                            np.zeros(stamps)))
+        for k, name in enumerate(("r1", "r2", "r3"))
+    }
+    merged = merge_fleet_positions(robots)
+    assert len(merged) == stamps
+    # The LAST message at a stamp is kept.
+    assert merged["position_x_r1"].iloc[0] == pytest.approx(0.04)
+
+    vectors = {name: _stamped_like_a_bag(_memory_df(np.ones(stamps), np.zeros(stamps)))
+               for name in robots}
+    assert len(social_memory_series(vectors)) == stamps
+    assert len(command_input_series(vectors, vectors)) == stamps
+    agents = [_agent_df(np.linspace(3.0, 4.0, stamps), np.zeros(stamps))]
+    assert len(social_potential_series(robots, agents)) == stamps
+
+    run = {"robots": robots, "agents": agents, "memory": vectors,
+           "command": vectors, "u_common": vectors}
+    assert len(run_timeseries(run)) == stamps

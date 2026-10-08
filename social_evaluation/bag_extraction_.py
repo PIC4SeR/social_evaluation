@@ -23,7 +23,11 @@ from social_evaluation.bag_extraction.bag_extraction_utils import (
     string_msg_to_row,
     vector3_msg_to_row,
 )
-from social_evaluation.common import get_map_data, retrieve_obstacle_positions
+from social_evaluation.common import (
+    experiment_for_bag,
+    get_map_data,
+    retrieve_obstacle_positions,
+)
 import social_evaluation
 from tqdm import tqdm
 from rclpy.logging import set_logger_level
@@ -198,9 +202,19 @@ def extract_data_from_bag(
     # namespace; the recorder writes it as /<robot>/social_memory. Absent for
     # any other controller, in which case df_memory is simply empty.
     memory_topics = {name: f"/{name}/social_memory" for name in robots_config}
+    # Commanded velocity and its social component, same Vector3Stamped path as
+    # the memory topic. Absent for controllers that do not publish them.
+    command_topics = {name: f"/{name}/cmd_u" for name in robots_config}
+    usocial_topics = {name: f"/{name}/cmd_u_social" for name in robots_config}
+    # The centroid law's own output u_c, identical on every worker by
+    # construction. Absent for controllers that do not publish it, and for bags
+    # recorded before the topic existed.
+    ucommon_topics = {name: f"/{name}/cmd_u_c" for name in robots_config}
     topics = list(topics) + [
         topic
-        for topic in list(robots_config.values()) + list(memory_topics.values())
+        for topic in (list(robots_config.values()) + list(memory_topics.values())
+                      + list(command_topics.values()) + list(usocial_topics.values())
+                      + list(ucommon_topics.values()))
         if topic not in topics
     ]
     (
@@ -220,6 +234,21 @@ def extract_data_from_bag(
     df_memory = {
         name: memory_by_topic[topic]
         for name, topic in memory_topics.items()
+        if not memory_by_topic.get(topic, pd.DataFrame()).empty
+    }
+    df_command = {
+        name: memory_by_topic[topic]
+        for name, topic in command_topics.items()
+        if not memory_by_topic.get(topic, pd.DataFrame()).empty
+    }
+    df_usocial = {
+        name: memory_by_topic[topic]
+        for name, topic in usocial_topics.items()
+        if not memory_by_topic.get(topic, pd.DataFrame()).empty
+    }
+    df_ucommon = {
+        name: memory_by_topic[topic]
+        for name, topic in ucommon_topics.items()
         if not memory_by_topic.get(topic, pd.DataFrame()).empty
     }
     # Back-compat single-robot dataframe: the configured topic if given,
@@ -261,6 +290,9 @@ def extract_data_from_bag(
             df_robots[name] = filter_df_by_time(df_robot, start_time, end_time)
         for name, df_z in df_memory.items():
             df_memory[name] = filter_df_by_time(df_z, start_time, end_time)
+        for _d in (df_command, df_usocial):
+            for name, df_v in _d.items():
+                _d[name] = filter_df_by_time(df_v, start_time, end_time)
         for transform_name, transform in transforms.items():
             transforms[transform_name] = filter_df_by_time(
                 transform, start_time, end_time
@@ -273,6 +305,9 @@ def extract_data_from_bag(
         "odometry": df_odometry,
         "robots": df_robots,
         "memory": df_memory,
+        "command": df_command,
+        "u_social": df_usocial,
+        "u_common": df_ucommon,
         "people": df_people,
         "path": df_path,
         "agents": df_agents_list,
@@ -476,9 +511,15 @@ def main():
         )
 
     if args.bag_file_path != PosixPath("None"):
-        bag_file = Path(args.bag_file_path)
-        bag_file = os.path.join(bag_file)
-        data = extract_data_from_bag(bag_file, config)
+        # One bag: its experiment (and so its config: robots, agents, map) is
+        # the configured experiment its path belongs to. Stored under its path,
+        # like every batch-extracted run, so the other tools can read it.
+        bag_file = os.path.join(Path(args.bag_file_path))
+        experiment = experiment_for_bag(bag_file, config["experiment_names"])
+        data = dict(existing_data or {})
+        data[bag_file] = extract_data_from_bag(
+            bag_file, config["topics"], config[experiment]
+        )
         save_data(data, output_file)
         return
 

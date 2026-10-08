@@ -237,3 +237,32 @@ def align_df_robot_agents(
     aligned_agents = align_df_agents_on_time(df_agents_list_)
 
     return aligned_agents[0], aligned_agents[1:]
+
+
+def path_contains(path_key: str, name: str) -> bool:
+    """True if *name* appears as a contiguous run of path segments in *path_key*.
+
+    Segment-based (so ``crossing1`` never matches ``crossing10``) while still
+    supporting multi-segment names like ``crossing1/crossing1``.
+    """
+    segments = str(path_key).split("/")
+    name_segments = name.split("/")
+    return any(
+        segments[i : i + len(name_segments)] == name_segments
+        for i in range(len(segments) - len(name_segments) + 1)
+    )
+
+
+def experiment_for_bag(bag_path: str, experiment_names: List[str]) -> str:
+    """The configured experiment a single bag belongs to, by its path.
+
+    Zero or several matches is an error: extracting with the wrong
+    experiment's config silently mislabels the data.
+    """
+    matches = [n for n in experiment_names if path_contains(bag_path, n)]
+    if len(matches) != 1:
+        raise ValueError(
+            f"{bag_path} matches {len(matches)} configured experiments "
+            f"{matches}; expected exactly one of {list(experiment_names)}"
+        )
+    return matches[0]

@@ -1,18 +1,70 @@
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from matplotlib.offsetbox import AnnotationBbox
-from matplotlib.animation import ArtistAnimation
+from matplotlib.animation import Animation, FuncAnimation
 from scipy.ndimage import gaussian_filter1d
 
-from tqdm import trange
+from tqdm import tqdm
 import social_evaluation.trajectory_plots as pu
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.artist import Artist
+
+
+def _visible(cmap: mcolors.Colormap, low: float = 0.35) -> mcolors.Colormap:
+    """The ``[low, 1]`` part of a sequential colormap.
+
+    Reds, Oranges, ... start at near-white, so a trail coloured by elapsed time
+    was invisible on a white background for its first stretch.
+    """
+    return mcolors.LinearSegmentedColormap.from_list(
+        f"{cmap.name}_visible", cmap(np.linspace(low, 1.0, 256))
+    )
+
+
+def _frame_by_frame(
+    fig: Figure,
+    n_frames: int,
+    draw: Callable[[int], List[Artist]],
+    time_freq: float,
+) -> FuncAnimation:
+    """An animation whose frames are built only when they are drawn.
+
+    ArtistAnimation needs every frame's artists up front, and each frame holds
+    its own rotated copy of every sprite (a TB2 sprite is 3.4 MB before
+    rotation): a 592-frame four-robot run grew by 60-130 MB a frame and was
+    killed at frame 435. Here only the current frame's artists exist; the
+    previous frame's are removed before the next one is built.
+    """
+    current: List[Artist] = []
+    progress = tqdm(total=n_frames, unit="frame")
+
+    def update(i: int) -> List[Artist]:
+        for art in current:
+            art.remove()
+        current[:] = draw(i)
+        if i < progress.n:  # a second save starts over
+            progress.reset()
+        progress.update(i + 1 - progress.n)
+        return list(current)
+
+    def keep() -> List[Artist]:
+        # Also runs on the first plain canvas draw (the PNG's bounding box),
+        # which must not replace the last frame the PNG is meant to show.
+        return list(current)
+
+    return FuncAnimation(
+        fig,
+        update,
+        frames=n_frames,
+        init_func=keep,
+        interval=int(1000 * time_freq),
+        blit=True,
+    )
 
 
 def _prepare_trajectory_time_index(df_trajectories: pd.DataFrame) -> pd.DataFrame:
@@ -226,7 +278,7 @@ def animate_trajectories(
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
     robot_names: Optional[List[str]] = None,
-) -> Optional[ArtistAnimation]:
+) -> Optional[Animation]:
     """Animate the trajectories of the agents
 
     :param df_trajectories: Dataframe with the trajectories
@@ -245,8 +297,6 @@ def animate_trajectories(
     :param dynamic_alpha: Whether to use dynamic alpha values
     :return: Matplotlib animation object
     """
-    artists = []
-    # Create the animation
     ani = None
     df_trajectories_t = _prepare_trajectory_time_index(df_trajectories)
     # Resample the data to the time frequency
@@ -257,29 +307,11 @@ def animate_trajectories(
     if df_trajectories_rs.empty:
         print("No trajectory samples after resampling; skipping animation.")
         return None
-    if animate:
-        for i in trange(len(df_trajectories_rs)):
-            artist = plot_trajectory_frame(
-                df_trajectories_rs,
-                i,
-                ax,
-                agent_num,
-                norm,
-                image_robot,
-                image_agents_walk,
-                static_image_size,
-                colorbar,
-                image_width_multi,
-                plot_trajectory=plot_trajectory,
-                dynamic_alpha=dynamic_alpha,
-                robot_names=robot_names,
-            )
-            artists.append(artist)
-        ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
-    else:
-        artist = plot_trajectory_frame(
+
+    def draw(i: int) -> List[Artist]:
+        return plot_trajectory_frame(
             df_trajectories_rs,
-            len(df_trajectories_rs) - 1,
+            i,
             ax,
             agent_num,
             norm,
@@ -292,10 +324,16 @@ def animate_trajectories(
             dynamic_alpha=dynamic_alpha,
             robot_names=robot_names,
         )
+
+    # The last frame carries the legend labels and the colorbar's mappable.
+    artist = draw(len(df_trajectories_rs) - 1)
+    if not animate:
         for art in artist:
             art.set_animated(False)
             ax.add_artist(art)
-        fig.canvas.draw()
+    # Also when animating: the draw maps the trails' colours, which the legend
+    # copies -- before it every entry was the default blue.
+    fig.canvas.draw()
 
     if robot_names and plot_trajectory:
         handles, labels = ax.get_legend_handles_labels()
@@ -304,9 +342,13 @@ def animate_trajectories(
             unique_handles.values(), unique_handles.keys(), fontsize=9, ncol=2
         )
 
-    if colorbar and artists:
-        cb = plt.colorbar(artists[-1][0], ax=ax)
+    if colorbar and animate:
+        cb = plt.colorbar(artist[0], ax=ax)
         cb.ax.set_ylabel(r"$\mathrm{ Time\ [s]}$")
+    if animate:
+        for art in artist:
+            art.remove()
+        ani = _frame_by_frame(fig, len(df_trajectories_rs), draw, time_freq)
     return ani
 
 
@@ -344,12 +386,15 @@ def plot_trajectory_frame(
     artist = []
     if robot_names:
         robot_cmaps = [
-            plt.cm.Reds,
-            plt.cm.Oranges,
-            plt.cm.Greens,
-            plt.cm.Purples,
-            plt.cm.Greys,
-            plt.cm.YlOrBr,
+            _visible(cmap)
+            for cmap in (
+                plt.cm.Reds,
+                plt.cm.Oranges,
+                plt.cm.Greens,
+                plt.cm.Purples,
+                plt.cm.Greys,
+                plt.cm.YlOrBr,
+            )
         ]
         for robot_index, robot_name in enumerate(robot_names):
             robot_column_map = {
@@ -423,7 +468,7 @@ def plot_trajectories(
     dynamic_alpha: bool = True,
     ax_limits: Optional[List[float]] = None,
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
-) -> Optional[ArtistAnimation]:
+) -> Optional[Animation]:
     """Plot the trajectories of the agents
 
     :param df_trajectories: Dataframe with the trajectories
@@ -577,7 +622,7 @@ def animate_trajectories_aggregated(
     animate: bool = True,
     image_width_multi: float = 1.0,
     plot_trajectory: bool = True,
-) -> Optional[ArtistAnimation]:
+) -> Optional[Animation]:
     """Animate the trajectories of the agents aggregated
 
     :param df_trajectories_list: List of dataframes with the trajectories
@@ -608,9 +653,8 @@ def animate_trajectories_aggregated(
         print("No aggregated trajectory samples after resampling; skipping animation.")
         return None
 
-    artists = []
-    for i in trange(max_len):
-        artist = []
+    def draw(i: int) -> List[Artist]:
+        artist: List[Artist] = []
         plot_robot_aggregated(
             ax,
             df_trajectories_rs_list,
@@ -629,14 +673,15 @@ def animate_trajectories_aggregated(
             norm,
             plot_trajectory=plot_trajectory,
         )
+        return artist
 
-        artists.append(artist)
-
-    ani = ArtistAnimation(fig, artists, interval=int(1000 * time_freq), blit=True)
-    if artists:
-        cb = plt.colorbar(artists[-1][0], ax=ax)
+    last = draw(max_len - 1)
+    if last:
+        cb = plt.colorbar(last[0], ax=ax)
         cb.ax.set_ylabel(r"$\mathrm{Time\ [s]}$")
-    return ani
+    for art in last:
+        art.remove()
+    return _frame_by_frame(fig, max_len, draw, time_freq)
 
 
 def plot_robot_aggregated(

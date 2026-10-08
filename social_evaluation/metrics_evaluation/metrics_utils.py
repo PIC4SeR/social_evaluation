@@ -102,6 +102,21 @@ def get_group_center(
     return df_agents[["time", "group_center_x", "group_center_y"]]
 
 
+def radius_for(robot_name: str, config: dict) -> float:
+    """This robot's radius under ``config`` (a ``metrics_config`` block).
+
+    ``robot_radii`` maps model names to radii and is matched by the longest key
+    that prefixes the robot's name, so fleet members ``turtlebot2_1`` and
+    ``turtlebot2_2`` take the ``turtlebot2`` entry. Anything unmatched falls
+    back to the scalar ``robot_radius``.
+    """
+    radii = config.get("robot_radii") or {}
+    matches = [key for key in radii if str(robot_name).startswith(key)]
+    if matches:
+        return float(radii[max(matches, key=len)])
+    return float(config.get("robot_radius", 0.3))
+
+
 def distance_to_closest_person(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,

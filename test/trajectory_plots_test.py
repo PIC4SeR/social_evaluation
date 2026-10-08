@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from matplotlib.animation import AbstractMovieWriter
 
 import social_evaluation.trajectory_plots as plots
 
@@ -45,4 +47,52 @@ def test_plot_trajectories_draws_every_fleet_member():
     assert max(r1.cmap(0.0)[:3]) - min(r1.cmap(0.0)[:3]) > 0.3
     assert [text.get_text() for text in ax.get_legend().get_texts()] == ["r1", "r2"]
     assert len(ax.artists) > 2
+    plt.close(fig)
+
+
+class _CountingWriter(AbstractMovieWriter):
+    """Records how many trails the axes hold when each frame is grabbed."""
+
+    def __init__(self, ax):
+        super().__init__(fps=10)
+        self.ax, self.trails = ax, []
+
+    def setup(self, fig, outfile, dpi=None):
+        super().setup(fig, outfile, dpi)
+
+    def grab_frame(self, **savefig_kwargs):
+        self.trails.append(len(self.ax.collections))
+
+    def finish(self):
+        pass
+
+
+def _fleet(samples):
+    t = np.arange(samples) * 0.1
+    line = lambda y: pd.DataFrame(
+        {"time": t, "position_x": t, "position_y": np.full(samples, y), "yaw": 0.0}
+    )
+    combined = pd.DataFrame(
+        {"time": t, "position_x_agent0": -t, "position_y_agent0": 1.0, "yaw_agent0": 0.0}
+    )
+    return combined, {"r1": line(0.0), "r2": line(2.0)}
+
+
+def test_animation_holds_one_frame_and_leaves_the_last_for_the_png():
+    """ArtistAnimation kept every frame's sprites alive (60-130 MB a frame for
+    four TB2s) and a 592-frame run was OOM-killed; frames are now built on draw."""
+    samples = 30
+    combined, robots = _fleet(samples)
+    fig, ax = plt.subplots()
+    ani = plots.plot_trajectories(combined, ax, fig=fig, animate=True, df_robots=robots)
+    assert len(ax.collections) == 0  # nothing built up front
+    writer = _CountingWriter(ax)
+    ani.save("unused.gif", writer=writer)
+    assert writer.trails == [3] * samples  # two robots and a pedestrian, one frame each
+    plots.get_bbox_for_figure(fig, ax)  # the plain draw main() does before the PNG
+    assert [len(trail.get_segments()) for trail in ax.collections] == [samples - 1] * 3
+    legend = ax.get_legend()
+    assert [text.get_text() for text in legend.get_texts()] == ["r1", "r2"]
+    first, second = (tuple(h.get_color()) for h in legend.legend_handles)
+    assert first != second  # each robot's own colour, not the default blue
     plt.close(fig)

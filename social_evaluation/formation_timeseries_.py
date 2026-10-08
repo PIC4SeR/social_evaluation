@@ -25,6 +25,7 @@ import pickle
 
 from social_evaluation.metrics_evaluation.fleet import (
     centroid_drift_series,
+    command_input_series,
     social_memory_series,
     social_potential_series,
 )
@@ -52,6 +53,9 @@ def run_timeseries(
         centroid_drift_series(df_robots, hold_point),
         social_potential_series(df_robots, agents),
         social_memory_series(run_data.get("memory") or {}),
+        command_input_series(
+            run_data.get("command") or {}, run_data.get("u_common") or {}
+        ),
     ]
     parts = [p for p in parts if not p.empty]
     if not parts:
@@ -154,10 +158,80 @@ def plot_memory(series: pd.DataFrame, title: str, output_file: Path) -> None:
     plt.close(fig)
 
 
-def run_name(run_key: str) -> str:
-    """Compact run identifier from a bag-path key (experiment/algorithm/run dir)."""
-    parts = Path(str(run_key)).parent.parts[-3:]
-    return "_".join(parts) if parts else "run"
+def plot_input(series: pd.DataFrame, title: str, output_file: Path) -> None:
+    """Commanded input: the common input u_c, and the total command u per robot.
+
+    The top panel is the centroid law's own output. It is identical on every
+    worker by construction, so the per-robot traces should coincide -- a visible
+    spread means the workers disagreed about the fleet state. Reading it is how
+    you tell what the mode did: held uc_speed, tapered, stopped.
+
+    The bottom panel is what each base was actually asked for, which legitimately
+    differs per robot because the formation and social terms do. The gap between
+    the two is everything the swarm added on top of the drive.
+    """
+    if "u_norm" not in series.columns:
+        return
+    has_uc = "uc_norm" in series.columns
+    fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+
+    if has_uc:
+        for column in [c for c in series.columns if c.startswith("uc_norm_")]:
+            axes[0].plot(
+                series["time"], series[column], linewidth=1, alpha=0.7,
+                label=column.removeprefix("uc_norm_"),
+            )
+        axes[0].plot(
+            series["time"], series["uc_norm"], color="black", linestyle="--",
+            linewidth=2, label="fleet mean",
+        )
+        axes[0].legend(loc="upper right", frameon=False, ncol=2, fontsize="small")
+    else:
+        axes[0].text(
+            0.5, 0.5, "no cmd_u_c in this bag", ha="center", va="center",
+            transform=axes[0].transAxes, color=TEXT_COLOR,
+        )
+    _finish(axes[0], "|u_c| (m/s)")
+    axes[0].set_ylim(bottom=0)
+
+    for column in [c for c in series.columns if c.startswith("u_norm_")]:
+        axes[1].plot(
+            series["time"], series[column], linewidth=1, alpha=0.7,
+            label=column.removeprefix("u_norm_"),
+        )
+    axes[1].plot(
+        series["time"], series["u_norm"], color="black", linestyle="--",
+        linewidth=2, label="fleet mean",
+    )
+    axes[1].legend(loc="upper right", frameon=False, ncol=2, fontsize="small")
+    _finish(axes[1], "|u| (m/s)")
+    axes[1].set_ylim(bottom=0)
+    axes[1].set_xlabel("Time (s)", color=TEXT_COLOR)
+    axes[0].set_title(f"{title} -- commanded input", color=TEXT_COLOR)
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=150)
+    plt.close(fig)
+
+
+def run_name(run_key: str, with_scenario: bool = False) -> str:
+    """Compact run identifier from a bag-path key (episode/algorithm/run dir).
+
+    ``with_scenario`` prepends the scenario directory above the episode, for a
+    pickle holding several scenarios, whose names would otherwise collide.
+    """
+    parts = Path(str(run_key)).parent.parts
+    tail = parts[-4:] if with_scenario else parts[-3:]
+    return "_".join(tail) if tail else "run"
+
+
+def run_names(run_keys) -> Dict[str, str]:
+    """``run_name`` for every key, with the scenario prefixed only when the
+    short names collide -- single-scenario pickles keep their usual names."""
+    keys = list(run_keys)
+    names = {key: run_name(key) for key in keys}
+    if len(set(names.values())) < len(keys):
+        names = {key: run_name(key, with_scenario=True) for key in keys}
+    return names
 
 
 def process_pickle(
@@ -169,16 +243,18 @@ def process_pickle(
     with open(pickle_file, "rb") as file:
         data = pickle.load(file)
     exported = 0
+    names = run_names(data)
     for run_key, run_data in data.items():
         series = run_timeseries(run_data, hold_point)
         if series.empty:
             continue
-        name = run_name(run_key)
+        name = names[run_key]
         output_dir.mkdir(parents=True, exist_ok=True)
         series.to_csv(output_dir / f"{name}_timeseries.csv", index=False)
         plot_timeseries(series, name, output_dir / f"{name}_timeseries.png")
         plot_centroid(series, name, output_dir / f"{name}_centroid.png")
         plot_memory(series, name, output_dir / f"{name}_memory.png")
+        plot_input(series, name, output_dir / f"{name}_input.png")
         exported += 1
     if exported == 0:
         print(f"{pickle_file}: no runs with fleet ('robots') data, nothing exported")

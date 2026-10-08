@@ -35,7 +35,20 @@ from social_evaluation.metrics_evaluation.metrics import (
     avg_closest_person,
     minimum_distance_to_people,
 )
-from social_evaluation.metrics_evaluation.metrics_utils import metric
+from social_evaluation.metrics_evaluation.metrics_utils import metric, radius_for
+
+
+def _one_row_per_time(df: pd.DataFrame) -> pd.DataFrame:
+    """The last row at each ``time``, so that merging on ``time`` stays 1:1.
+
+    Bag stamps come off the simulator clock, which ticks at 10 Hz, so a 20 Hz
+    topic carries 2-6 messages per stamp. An outer merge on a non-unique key
+    is a per-stamp cartesian product, compounded over every series merged:
+    one 40 s run reached 46 GB and was killed (2026-09-10). The last message
+    is the state at the end of the stamp.
+    """
+    df = df.astype({"time": float})
+    return df.drop_duplicates("time", keep="last").reset_index(drop=True)
 
 
 def merge_fleet_positions(df_robots: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -54,7 +67,7 @@ def merge_fleet_positions(df_robots: Dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "position_y": f"position_y_{name}",
             }
         )
-        cols = cols.astype(float)
+        cols = _one_row_per_time(cols.astype(float))
         merged = cols if merged is None else merged.merge(cols, on="time", how="outer")
     if merged is None:
         return pd.DataFrame()
@@ -145,7 +158,13 @@ def social_potential_series(
     for name, df_robot in df_robots.items():
         if df_robot.empty:
             continue
-        combined = combine_df_robot_agents(df_robot, df_agents_list)
+        # One row per stamp here too, or the per-robot merges below multiply
+        # (and the mean of the total is weighted by how many messages a stamp
+        # happened to carry -- fleet_social_potential_mean changed slightly
+        # when this was added, 2026-09-17).
+        combined = _one_row_per_time(
+            combine_df_robot_agents(_one_row_per_time(df_robot), df_agents_list)
+        )
         potential = np.zeros(len(combined))
         for i in range(len(df_agents_list)):
             rx = combined["position_x"] - combined[f"position_x_agent{i}"]
@@ -203,7 +222,7 @@ def social_memory_series(df_memory: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     for name, df_z in df_memory.items():
         if df_z.empty:
             continue
-        cols = df_z[["time", "x", "y"]].astype(float).rename(
+        cols = _one_row_per_time(df_z[["time", "x", "y"]].astype(float)).rename(
             columns={"x": f"z_x_{name}", "y": f"z_y_{name}"}
         )
         merged = cols if merged is None else merged.merge(cols, on="time", how="outer")
@@ -220,6 +239,70 @@ def social_memory_series(df_memory: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         merged[f"z_{axis}"] = merged[
             [c for c in merged.columns if c.startswith(f"z_{axis}_")]
         ].mean(axis=1)
+    return merged
+
+
+def command_input_series(
+    df_command: Dict[str, pd.DataFrame],
+    df_ucommon: Optional[Dict[str, pd.DataFrame]] = None,
+) -> pd.DataFrame:
+    """The commanded input over time: the total ``u`` and the common input ``u_c``.
+
+    Two different things that are easy to conflate:
+
+    * ``u`` (``/<robot>/cmd_u``, ``run_data["command"]``) is what each worker
+      asked of its base -- formation + common input + social + memory feedback.
+      It differs per robot, because the formation and social terms do.
+    * ``u_c`` (``/<robot>/cmd_u_c``, ``run_data["u_common"]``) is the centroid
+      law's own output. It is IDENTICAL on every worker by construction, so the
+      per-robot columns should lie on top of each other; a spread between them
+      means the workers disagreed about the fleet state, which is a bug worth
+      seeing. Zero under ``centroid_mode: feedback``, where the target is a
+      potential term inside the law rather than a common input.
+
+    Reading ``u_c`` is how you tell what the centroid mode actually did -- held
+    ``uc_speed``, tapered, stopped -- which none of the other series show.
+
+    :param df_command: Robot name -> ``cmd_u`` dataframe (``time``, ``x``, ``y``)
+    :param df_ucommon: Robot name -> ``cmd_u_c`` dataframe; absent for bags
+        recorded before the topic existed, in which case only ``u`` is returned
+    :return: Dataframe with ``time``, per-robot ``u_norm_<name>`` and
+        ``uc_norm_<name>``, and the fleet means ``u_norm``, ``uc_norm``
+    """
+    frames: List[pd.DataFrame] = []
+    for prefix, source in (("u", df_command), ("uc", df_ucommon or {})):
+        for name, df_vec in (source or {}).items():
+            if df_vec.empty:
+                continue
+            frames.append(
+                _one_row_per_time(df_vec[["time", "x", "y"]].astype(float)).rename(
+                    columns={"x": f"{prefix}_x_{name}", "y": f"{prefix}_y_{name}"}
+                )
+            )
+    if not frames:
+        return pd.DataFrame()
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="time", how="outer")
+    merged.sort_values("time", kind="stable", inplace=True, ignore_index=True)
+    value_cols = [c for c in merged.columns if c != "time"]
+    merged[value_cols] = merged[value_cols].interpolate(limit_direction="both")
+    merged.dropna(inplace=True)
+    merged.reset_index(drop=True, inplace=True)
+    for prefix in ("u", "uc"):
+        names = [
+            c.removeprefix(f"{prefix}_x_")
+            for c in merged.columns
+            if c.startswith(f"{prefix}_x_")
+        ]
+        for name in names:
+            merged[f"{prefix}_norm_{name}"] = np.hypot(
+                merged[f"{prefix}_x_{name}"], merged[f"{prefix}_y_{name}"]
+            )
+        if names:
+            merged[f"{prefix}_norm"] = merged[
+                [f"{prefix}_norm_{n}" for n in names]
+            ].mean(axis=1)
     return merged
 
 
@@ -357,12 +440,15 @@ def _aggregate_over_robots(
     df_robots: Dict[str, pd.DataFrame],
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Run a single-robot metric per robot and reduce the scalars over the fleet."""
+    """Run a single-robot metric per robot and reduce the scalars over the fleet.
+
+    Each robot is measured with its own radius (``radius_for``)."""
     per_robot = {}
     for name, df_robot in df_robots.items():
         if df_robot.empty:
             continue
-        result = single_robot_metric(df_agents_list, df_robot, **kwargs)
+        options = {**kwargs, "robot_radius": radius_for(name, kwargs)}
+        result = single_robot_metric(df_agents_list, df_robot, **options)
         per_robot[name] = result[0] if isinstance(result, tuple) else result
     if not per_robot:
         return np.nan, pd.DataFrame()

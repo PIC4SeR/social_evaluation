@@ -10,7 +10,7 @@ import subprocess
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.animation import ArtistAnimation, PillowWriter, FFMpegWriter
+from matplotlib.animation import Animation, PillowWriter, FFMpegWriter
 from typing import Dict, Any, List, Tuple, Optional
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -61,7 +61,7 @@ def normalize_animation_formats(
 
 
 def save_animation_output(
-    animation: ArtistAnimation,
+    animation: Animation,
     output_path: Path,
     fps: int,
     preferred_writer: Optional[str] = "pillow",
@@ -129,7 +129,7 @@ def save_animation_output(
 
 
 def save_animation_outputs(
-    animation: ArtistAnimation,
+    animation: Animation,
     output_path: Path,
     fps: int,
     output_formats: List[str],
@@ -157,7 +157,7 @@ def plot_experiment_aggregate(
     animate: bool = True,
     colorbar: bool = False,
     use_odometry: bool = False,
-) -> ArtistAnimation | None:
+) -> Animation | None:
     """Plot the experiment aggregated in a single plot
 
     :param data: Dictionary with the data
@@ -291,7 +291,7 @@ def plot_data(
     dynamic_alpha: bool = True,
     plot_trajectory: bool = True,
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
-) -> ArtistAnimation | None:
+) -> Animation | None:
     """Plot the data in a single plot
 
     :param df_odometry: Dataframe with the odometry
@@ -360,7 +360,7 @@ def load_data_from_pickles(pickle_paths: List[Path]) -> Dict[str, Any]:
 
 
 def save_animation_with_fallback(
-    animation: ArtistAnimation,
+    animation: Animation,
     output_path: Path,
     fps: int,
     preferred_writer: Optional[str] = "pillow",
