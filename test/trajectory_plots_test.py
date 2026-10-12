@@ -96,3 +96,43 @@ def test_animation_holds_one_frame_and_leaves_the_last_for_the_png():
     first, second = (tuple(h.get_color()) for h in legend.legend_handles)
     assert first != second  # each robot's own colour, not the default blue
     plt.close(fig)
+
+
+def test_exact_scale_markers_are_drawn_at_their_size_in_metres():
+    """marker_sizes: a marker asked for 1 m is 1 m on the axes; the legacy path
+    keeps OffsetImage's dpi/72 enlargement, so existing plots are unchanged."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from social_evaluation.trajectory_plots import plot_utils as pu
+
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=100)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
+    ax.set_aspect("equal")
+    fig.canvas.draw()
+    image = np.ones((50, 50, 4))
+    one_metre_px = ax.transData.transform((1, 0))[0] - ax.transData.transform((0, 0))[0]
+    widths = {}
+    for exact in (True, False):
+        box = pu.create_annotation_box(image, 5, 5, desired_width_px=pu.meters_to_pixels(1.0, ax),
+                                       exact_scale=exact)
+        ax.add_artist(box)
+        fig.canvas.draw()
+        # the image itself, not the AnnotationBbox (which adds its own padding)
+        widths[exact] = box.offsetbox.get_window_extent(fig.canvas.get_renderer()).width
+        box.remove()
+    plt.close(fig)
+    assert abs(widths[True] - one_metre_px) / one_metre_px < 0.03
+    assert abs(widths[False] / widths[True] - 100 / 72) < 0.03
+
+
+def test_marker_size_resolves_robot_models_and_agents():
+    from social_evaluation.trajectory_plots.animate_agents import marker_size
+    sizes = {"robots": {"turtlebot2": 0.356, "jackal": 0.49, "default": 0.4}, "agent": 0.5}
+    assert marker_size(sizes, "turtlebot2_1") == 0.356
+    assert marker_size(sizes, "jackal") == 0.49
+    assert marker_size(sizes, "tb3_0") == 0.4
+    assert marker_size(sizes, None) == 0.5
+    assert marker_size(None, "jackal") == 0.15 and marker_size(None, None) == 0.13

@@ -81,17 +81,41 @@ def merge_fleet_positions(df_robots: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     return merged
 
 
+def control_points(df_robots: Dict[str, pd.DataFrame], offset: float) -> Dict[str, pd.DataFrame]:
+    """Each robot's odometry moved to its CONTROL POINT ``q + offset (cos yaw, sin yaw)``:
+    the point a unicycle controller with an off-axle offset (swarm_control's
+    ``unicycle_offset``) actually steers, and the one its centroid law and memory hold.
+    ``offset`` 0 returns the body positions unchanged."""
+    if not offset:
+        return df_robots
+    moved = {}
+    for name, df in df_robots.items():
+        if df.empty:
+            moved[name] = df
+            continue
+        if "yaw" not in df.columns:
+            raise KeyError(f"control_point_offset needs the robots' yaw; '{name}' has none")
+        out = df.copy()
+        out["position_x"] = df["position_x"] + offset * np.cos(df["yaw"])
+        out["position_y"] = df["position_y"] + offset * np.sin(df["yaw"])
+        moved[name] = out
+    return moved
+
+
 def centroid_drift_series(
     df_robots: Dict[str, pd.DataFrame],
     hold_point: Optional[Tuple[float, float]] = None,
+    control_point_offset: float = 0.0,
 ) -> pd.DataFrame:
     """Fleet centroid and its distance from the hold point over time.
 
     :param df_robots: Mapping of robot name to its odometry dataframe
     :param hold_point: (x, y) reference; defaults to the first centroid sample
+    :param control_point_offset: > 0: the centroid of the robots' control points
+        (see :func:`control_points`) instead of their bodies
     :return: Dataframe with ``time``, ``centroid_x``, ``centroid_y``, ``drift``
     """
-    merged = merge_fleet_positions(df_robots)
+    merged = merge_fleet_positions(control_points(df_robots, control_point_offset))
     if merged.empty:
         return pd.DataFrame()
     x_cols = [c for c in merged.columns if c.startswith("position_x_")]
@@ -318,15 +342,43 @@ def centroid_max_drift(
     *args,
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
     hold_point: Optional[Tuple[float, float]] = None,
+    goal: Optional[Tuple[float, float]] = None,
+    control_point_offset: float = 0.0,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Maximum distance of the fleet centroid from the hold point."""
+    """Maximum distance of the fleet centroid from the hold point: ``hold_point``, else the
+    run's set point (``goal``, e.g. a perturbation task's hold point given in the experiment
+    config), else the first centroid sample."""
     if not df_robots:
         return _no_fleet_data("centroid_max_drift")
-    series = centroid_drift_series(df_robots, hold_point)
+    series = centroid_drift_series(df_robots, hold_point if hold_point is not None else goal,
+                                   control_point_offset)
     if series.empty:
         return _no_fleet_data("centroid_max_drift")
     return float(series["drift"].max()), series
+
+
+@metric("centroid_final_goal_distance")
+def centroid_final_goal_distance(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    goal: Optional[Tuple[float, float]] = None,
+    control_point_offset: float = 0.0,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Distance of the fleet centroid from its set point (``goal``) at the end of the run:
+    a formation task's goal, a perturbation task's hold point. NaN without one."""
+    if goal is None:
+        print("centroid_final_goal_distance: no goal (set 'goal' in the experiment config), returning NaN")
+        return np.nan, pd.DataFrame()
+    if not df_robots:
+        return _no_fleet_data("centroid_final_goal_distance")
+    series = centroid_drift_series(df_robots, goal, control_point_offset)
+    if series.empty:
+        return _no_fleet_data("centroid_final_goal_distance")
+    return float(series["drift"].iloc[-1]), series
 
 
 @metric("centroid_mean_drift")
@@ -336,12 +388,15 @@ def centroid_mean_drift(
     *args,
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
     hold_point: Optional[Tuple[float, float]] = None,
+    goal: Optional[Tuple[float, float]] = None,
+    control_point_offset: float = 0.0,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Mean distance of the fleet centroid from the hold point."""
+    """Mean distance of the fleet centroid from the hold point (as centroid_max_drift)."""
     if not df_robots:
         return _no_fleet_data("centroid_mean_drift")
-    series = centroid_drift_series(df_robots, hold_point)
+    series = centroid_drift_series(df_robots, hold_point if hold_point is not None else goal,
+                                   control_point_offset)
     if series.empty:
         return _no_fleet_data("centroid_mean_drift")
     return float(series["drift"].mean()), series
@@ -355,6 +410,7 @@ def centroid_settled_motion(
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
     hold_point: Optional[Tuple[float, float]] = None,
     settle_window: float = 10.0,
+    control_point_offset: float = 0.0,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
     """Peak excursion of the centroid from its own mean over the last window.
@@ -367,7 +423,7 @@ def centroid_settled_motion(
     """
     if not df_robots:
         return _no_fleet_data("centroid_settled_motion")
-    series = centroid_drift_series(df_robots, hold_point)
+    series = centroid_drift_series(df_robots, hold_point, control_point_offset)
     if series.empty:
         return _no_fleet_data("centroid_settled_motion")
     tail = series[series["time"] >= series["time"].iloc[-1] - float(settle_window)]

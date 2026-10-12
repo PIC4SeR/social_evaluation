@@ -7,7 +7,8 @@ import pytest
 
 import social_evaluation.metrics_evaluation_ as ME
 from social_evaluation.common import experiment_for_bag
-from social_evaluation.formation_timeseries_ import run_names
+from social_evaluation.formation_timeseries_ import (
+    plot_centroid, plot_timeseries, run_names, run_timeseries)
 from social_evaluation.metrics_evaluation.metrics_utils import radius_for
 
 from fleet_metrics_test import _agent_df, _robot_df
@@ -135,3 +136,76 @@ def test_timeseries_names_gain_the_scenario_only_when_they_collide():
         "scene_a_episode_1_algo_experiment_1",
         "scene_b_episode_1_algo_experiment_1",
     ]
+
+
+def test_timeseries_drift_is_the_distance_to_the_goal_when_one_is_given(tmp_path):
+    """Formation tasks (crossing, passing): the centroid's distance to the goal; without a
+    goal the drift stays relative to the first centroid sample."""
+    robots, agents = _fleet()          # centroid from (0, 2.5) to (2, 2.5)
+    run = _run(robots, agents)
+    plain = run_timeseries(run)
+    assert "goal_x" not in plain and plain["drift"].iloc[-1] == pytest.approx(2.0)
+    to_goal = run_timeseries(run, goal=(4.0, 2.5))
+    assert to_goal["drift"].iloc[0] == pytest.approx(4.0)
+    assert to_goal["drift"].iloc[-1] == pytest.approx(2.0)
+    assert (to_goal["goal_x"] == 4.0).all() and (to_goal["goal_y"] == 2.5).all()
+    plot_timeseries(to_goal, "run", tmp_path / "ts.png", goal_tolerance=0.25)
+    plot_centroid(to_goal, "run", tmp_path / "c.png")
+    assert (tmp_path / "ts.png").stat().st_size > 0 and (tmp_path / "c.png").stat().st_size > 0
+
+
+def test_centroid_final_goal_distance_is_the_last_centroid_to_goal_distance():
+    """Formation tasks: final centroid (2, 2.5) against goal (4, 2.5) -> 2 m; NaN without a goal."""
+    robots, agents = _fleet()
+    args = (robots["tb_1"], pd.DataFrame({"time": [0.0]}), agents, pd.DataFrame(), {})
+    results, _ = ME.evaluate_metrics(*args, (4.0, 2.5), CONFIG, ["centroid_final_goal_distance"],
+                                     df_robots=robots)
+    assert results["centroid_final_goal_distance"] == pytest.approx(2.0)
+    results, _ = ME.evaluate_metrics(*args, None, CONFIG, ["centroid_final_goal_distance"],
+                                     df_robots=robots)
+    assert np.isnan(results["centroid_final_goal_distance"])
+
+
+def test_intimate_personal_intrusions_are_the_sum_of_the_two_zones_on_the_worst_robot():
+    """tb_1 passes a standing person with body gaps 0.13 (intimate), 0.63 and 1.13 (personal)
+    and 2.63 m (social): 75 % = 25 + 50; jk stays far away, the fleet takes the worst robot."""
+    xs = np.array([0.5, 1.0, 1.5, 3.0])           # gap = x - 0.2 (tb) - 0.17 (agent)
+    robots = {"tb_1": _robot_df(xs, np.zeros(4)), "jk": _robot_df(xs, np.full(4, 10.0))}
+    agents = [_agent_df(np.zeros(4), np.zeros(4))]
+    names = ["intimate_space_intrusions", "personal_space_intrusions", "intimate_personal_space_intrusions"]
+    results, _ = ME.evaluate_metrics(robots["tb_1"], pd.DataFrame({"time": [0.0]}), agents, pd.DataFrame(),
+                                     {}, (0.0, 0.0), CONFIG, names, df_robots=robots)
+    assert results["intimate_personal_space_intrusions@tb_1"] == pytest.approx(75.0)
+    assert results["intimate_personal_space_intrusions@tb_1"] == pytest.approx(
+        results["intimate_space_intrusions@tb_1"] + results["personal_space_intrusions@tb_1"])
+    assert results["intimate_personal_space_intrusions@jk"] == 0.0
+    assert results["intimate_personal_space_intrusions"] == pytest.approx(75.0)
+
+
+def _yawed(xs, ys, yaw):
+    df = _robot_df(xs, ys)
+    df["yaw"] = yaw
+    return df
+
+
+def test_drift_metrics_follow_the_control_points_and_the_set_point():
+    """Two robots parked at (0, 0) facing +x and (2, 0) facing +y: the body centroid is (1, 0),
+    the control-point centroid (offset 0.1) is (1.05, 0.05). The set point (goal) is the
+    reference of both the max and the final drift."""
+    from social_evaluation.metrics_evaluation.fleet import centroid_drift_series, control_points
+    robots = {"a": _yawed(np.zeros(3), np.zeros(3), 0.0), "b": _yawed(np.full(3, 2.0), np.zeros(3), np.pi / 2)}
+    moved = control_points(robots, 0.1)
+    assert moved["a"]["position_x"].iloc[0] == pytest.approx(0.1)
+    assert moved["b"]["position_y"].iloc[0] == pytest.approx(0.1)
+    assert control_points(robots, 0.0) is robots
+    series = centroid_drift_series(robots, (1.0, 0.0), control_point_offset=0.1)
+    assert series["drift"].iloc[-1] == pytest.approx(np.hypot(0.05, 0.05))
+    config = {**CONFIG, "control_point_offset": 0.1}
+    args = (robots["a"], pd.DataFrame({"time": [0.0]}), [_agent_df(np.full(3, 9.0), np.full(3, 9.0))],
+            pd.DataFrame(), {})
+    names = ["centroid_max_drift", "centroid_final_goal_distance"]
+    results, _ = ME.evaluate_metrics(*args, (1.0, 0.0), config, names, df_robots=robots)
+    assert results["centroid_final_goal_distance"] == pytest.approx(np.hypot(0.05, 0.05))
+    assert results["centroid_max_drift"] == pytest.approx(np.hypot(0.05, 0.05))
+    body, _ = ME.evaluate_metrics(*args, (1.0, 0.0), CONFIG, names, df_robots=robots)
+    assert body["centroid_final_goal_distance"] == pytest.approx(0.0)

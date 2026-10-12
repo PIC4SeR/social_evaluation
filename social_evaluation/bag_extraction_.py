@@ -192,7 +192,10 @@ def extract_data_from_bag(
 
     :return: Dictionary with the extracted data. If the experiment config has a
         ``robots: {name: odometry_topic}`` mapping (multi-robot fleets), the
-        result also contains ``robots: {name: df_odometry}``.
+        result also contains ``robots: {name: df_odometry}``. ``goal`` is the bag's
+        PoseStamped goal or, when the bag has none, the experiment config's
+        ``goal: [x, y]`` (fleet formation tasks send theirs as an action, so the
+        centroid goal is never on a topic).
     """
 
     # set logger level to warning to avoid printing too many messages
@@ -311,7 +314,8 @@ def extract_data_from_bag(
         "people": df_people,
         "path": df_path,
         "agents": df_agents_list,
-        "goal": goal,
+        "goal": goal if goal is not None else (
+            tuple(float(v) for v in exp_config["goal"]) if exp_config.get("goal") else None),
         "result": df_result,
         "transforms": transforms,
         "obstacles": df_obs,

@@ -11,6 +11,14 @@ The memory panels need ``run_data["memory"]``, i.e. a run recorded under
 otherwise. The scalar summaries of the same series live in the metric library
 (``centroid_settled_motion``, ``fleet_social_potential_mean``, ...); this tool is
 for looking at the curves themselves.
+
+``--goal X Y`` gives the centroid's set point -- a formation task's goal (crossing,
+passing) or a perturbation task's hold point: the drift is then the centroid's distance
+to it, the CSV gains ``goal_x``/``goal_y``, and the plots draw it (with
+``--goal-tolerance``, the success radius). Without it the drift is from the first
+sample. ``--control-point-offset L`` measures the centroid of the robots' control points
+``q + L (cos yaw, sin yaw)`` (what an off-axle unicycle controller steers; swarm_control's
+``unicycle_offset``) instead of their bodies.
 """
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -38,19 +46,26 @@ Z_X_COLOR = "#2a78d6"
 Z_Y_COLOR = "#d64545"
 TEXT_COLOR = "#0b0b0b"
 START_COLOR = "#4a4a4a"
+GOAL_COLOR = "#c23b22"
 
 
 def run_timeseries(
     run_data: Dict[str, Any],
     hold_point: Optional[Tuple[float, float]] = None,
+    goal: Optional[Tuple[float, float]] = None,
+    control_point_offset: float = 0.0,
 ) -> pd.DataFrame:
-    """Merged drift + potential time series for one run (empty if no fleet data)."""
+    """Merged drift + potential time series for one run (empty if no fleet data).
+
+    With ``goal`` (the set point) the drift is the distance to it (``hold_point`` is then
+    unused); ``control_point_offset`` > 0 moves the centroid to the control points."""
     df_robots = run_data.get("robots") or {}
     if not df_robots:
         return pd.DataFrame()
     agents = run_data.get("agents") or []
     parts = [
-        centroid_drift_series(df_robots, hold_point),
+        centroid_drift_series(df_robots, goal if goal is not None else hold_point,
+                              control_point_offset),
         social_potential_series(df_robots, agents),
         social_memory_series(run_data.get("memory") or {}),
         command_input_series(
@@ -69,6 +84,8 @@ def run_timeseries(
         merged[value_cols] = merged[value_cols].interpolate(limit_direction="both")
     merged = merged.copy()
     merged["time"] -= merged["time"].iloc[0]
+    if goal is not None:
+        merged["goal_x"], merged["goal_y"] = float(goal[0]), float(goal[1])
     return merged
 
 
@@ -78,10 +95,15 @@ def _finish(ax, ylabel: str) -> None:
     ax.spines[["top", "right"]].set_visible(False)
 
 
-def plot_timeseries(series: pd.DataFrame, title: str, output_file: Path) -> None:
-    """Stacked panels: centroid drift and total social potential over time."""
+def plot_timeseries(
+    series: pd.DataFrame, title: str, output_file: Path,
+    goal_tolerance: Optional[float] = None,
+) -> None:
+    """Stacked panels: centroid drift (or distance to the goal) and total social
+    potential over time."""
+    to_goal = "goal_x" in series.columns
     panels = [
-        ("drift", "Centroid drift (m)", DRIFT_COLOR),
+        ("drift", "Distance to set point (m)" if to_goal else "Centroid drift (m)", DRIFT_COLOR),
         ("potential", "Social potential", POTENTIAL_COLOR),
     ]
     panels = [p for p in panels if p[0] in series.columns]
@@ -90,6 +112,10 @@ def plot_timeseries(series: pd.DataFrame, title: str, output_file: Path) -> None
     )
     for ax, (column, label, color) in zip(axes[:, 0], panels):
         ax.plot(series["time"], series[column], color=color, linewidth=2)
+        if column == "drift" and to_goal and goal_tolerance is not None:
+            ax.axhline(goal_tolerance, color=GOAL_COLOR, linestyle="--", linewidth=1.5,
+                       label=f"tolerance {goal_tolerance:g} m")
+            ax.legend(loc="upper right", frameon=False)
         _finish(ax, label)
         ax.set_ylim(bottom=0)
     axes[-1, 0].set_xlabel("Time (s)", color=TEXT_COLOR)
@@ -100,10 +126,11 @@ def plot_timeseries(series: pd.DataFrame, title: str, output_file: Path) -> None
 
 
 def plot_centroid(series: pd.DataFrame, title: str, output_file: Path) -> None:
-    """Centroid x and y against their starting values (the hold point).
+    """Centroid x and y against their starting values (the hold point), and
+    against the goal when the series has one.
 
     The drift panel folds both axes into one distance; this splits them, so a
-    centroid that settles back on its start line is visible per axis.
+    centroid that settles back on its start line (or on the goal) is visible per axis.
     """
     if "centroid_x" not in series.columns:
         return
@@ -115,6 +142,9 @@ def plot_centroid(series: pd.DataFrame, title: str, output_file: Path) -> None:
             values.iloc[0], color=START_COLOR, linestyle="--", linewidth=1.5,
             label=f"start {axis}",
         )
+        if f"goal_{axis}" in series.columns:
+            ax.axhline(series[f"goal_{axis}"].iloc[0], color=GOAL_COLOR, linestyle=":",
+                       linewidth=2, label=f"set point {axis}")
         ax.legend(loc="upper right", frameon=False)
         _finish(ax, f"Centroid {axis} (m)")
     axes[1].set_xlabel("Time (s)", color=TEXT_COLOR)
@@ -238,6 +268,9 @@ def process_pickle(
     pickle_file: Path,
     output_dir: Path,
     hold_point: Optional[Tuple[float, float]] = None,
+    goal: Optional[Tuple[float, float]] = None,
+    goal_tolerance: Optional[float] = None,
+    control_point_offset: float = 0.0,
 ) -> int:
     """Export CSV + PNG for every fleet run in one pickle. Returns runs exported."""
     with open(pickle_file, "rb") as file:
@@ -245,13 +278,13 @@ def process_pickle(
     exported = 0
     names = run_names(data)
     for run_key, run_data in data.items():
-        series = run_timeseries(run_data, hold_point)
+        series = run_timeseries(run_data, hold_point, goal, control_point_offset)
         if series.empty:
             continue
         name = names[run_key]
         output_dir.mkdir(parents=True, exist_ok=True)
         series.to_csv(output_dir / f"{name}_timeseries.csv", index=False)
-        plot_timeseries(series, name, output_dir / f"{name}_timeseries.png")
+        plot_timeseries(series, name, output_dir / f"{name}_timeseries.png", goal_tolerance)
         plot_centroid(series, name, output_dir / f"{name}_centroid.png")
         plot_memory(series, name, output_dir / f"{name}_memory.png")
         plot_input(series, name, output_dir / f"{name}_input.png")
@@ -281,13 +314,38 @@ def main():
         required=True,
         help="Directory for the CSV/PNG outputs",
     )
-    parser.add_argument(
+    reference = parser.add_mutually_exclusive_group()
+    reference.add_argument(
         "--hold-point",
         type=float,
         nargs=2,
         default=None,
         metavar=("X", "Y"),
         help="Drift reference point (default: the centroid at the first sample)",
+    )
+    reference.add_argument(
+        "--goal",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("X", "Y"),
+        help="The centroid's set point (a formation task's goal, a perturbation task's "
+        "hold point): the drift is the distance to it, and the plots draw it",
+    )
+    parser.add_argument(
+        "--goal-tolerance",
+        type=float,
+        default=None,
+        metavar="M",
+        help="With --goal: the success radius, drawn on the distance panel",
+    )
+    parser.add_argument(
+        "--control-point-offset",
+        type=float,
+        default=0.0,
+        metavar="L",
+        help="Measure the centroid of the control points q + L (cos yaw, sin yaw) "
+        "(swarm_control: unicycle_offset, 0.10) instead of the robot bodies",
     )
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -304,13 +362,15 @@ def main():
         pickle_files = [args.pickle_file]
 
     hold_point = tuple(args.hold_point) if args.hold_point else None
+    goal = tuple(args.goal) if args.goal else None
     total = 0
     for pickle_file in pickle_files:
         if args.base_path is not None:
             out = args.output_dir / pickle_file.relative_to(args.base_path).parent
         else:
             out = args.output_dir
-        total += process_pickle(pickle_file, out, hold_point)
+        total += process_pickle(pickle_file, out, hold_point, goal, args.goal_tolerance,
+                                args.control_point_offset)
     print(f"Exported time series for {total} run(s) to {args.output_dir}")
 
 

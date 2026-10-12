@@ -15,6 +15,7 @@ from social_evaluation.metrics_evaluation.metrics_utils import (
     group_space_intrusions,
     check_collisions,
     distance_to_closest_person,
+    indicator_function,
     closest_agent_to_robot,
 )
 
@@ -321,6 +322,26 @@ def _make_group_space_intrusion_metric(space: SocialSpace):
         )
 
     return _metric
+
+
+@metric("intimate_personal_space_intrusions")
+def intimate_personal_space_intrusions(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Percentage of time with a person closer than 1.2 m (body gap): the intimate
+    (< 0.45 m) and personal (0.45-1.2 m) zones together. The zones are disjoint, so this
+    is intimate_ + personal_space_intrusions -- and unlike personal alone it cannot drop
+    when the robot moves closer still."""
+    df_min_dist = distance_to_closest_person(df_agents_list, df_robot, robot_radius, agent_radius)
+    df_min_dist["intrusion"] = df_min_dist["min_distance"].apply(
+        lambda d: indicator_function(d, SocialSpace.INTIMATE) + indicator_function(d, SocialSpace.PERSONAL)
+    )
+    return df_min_dist["intrusion"].mean() * 100, df_min_dist[["time", "intrusion"]]
 
 
 # Register the four proxemic zones for both per-agent and per-group intrusions.

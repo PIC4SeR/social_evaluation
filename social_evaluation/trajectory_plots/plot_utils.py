@@ -172,15 +172,19 @@ def create_line_collection(
 
 
 def create_image_marker(
-    image: np.ndarray, desired_width_px: float = 20, angle: float = 0, alpha: float = 1
+    image: np.ndarray, desired_width_px: float = 20, angle: float = 0, alpha: float = 1,
+    exact_scale: bool = False,
 ) -> OffsetImage:
     """
     Create an image marker for a point on the plot.
 
     :param image: Image data as numpy array
-    :param desired_width_px: Desired width of the image in pixels
+    :param desired_width_px: Desired size of the image's vertical side in pixels
     :param angle: Rotation angle in radians
     :param alpha: Transparency value
+    :param exact_scale: Draw the image at exactly ``desired_width_px``. By default
+        OffsetImage also multiplies by the renderer's dpi/72 (1.39 at 100 dpi), so
+        a marker comes out larger than requested; true-to-size plots need this off.
     :return: OffsetImage object
     """
     rotated_image = normalize_image(rotate(image, np.degrees(angle), reshape=True))
@@ -188,6 +192,7 @@ def create_image_marker(
         rotated_image,
         zoom=desired_width_px / image.shape[0],
         alpha=alpha,
+        dpi_cor=not exact_scale,
     )
 
 
@@ -198,6 +203,7 @@ def create_annotation_box(
     desired_width_px: float = 20,
     angle: float = 0,
     alpha: float = 1,
+    exact_scale: bool = False,
 ) -> AnnotationBbox:
     """
     Create an annotation box with an image marker for a point on the plot.
@@ -211,7 +217,8 @@ def create_annotation_box(
     :return: AnnotationBbox object
     """
     image_rot = create_image_marker(
-        image, desired_width_px=desired_width_px, angle=angle, alpha=alpha
+        image, desired_width_px=desired_width_px, angle=angle, alpha=alpha,
+        exact_scale=exact_scale,
     )
     return AnnotationBbox(image_rot, (x, y), frameon=False)
 

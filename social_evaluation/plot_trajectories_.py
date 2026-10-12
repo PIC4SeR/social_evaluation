@@ -213,6 +213,7 @@ def plot_experiment_single(
     use_odometry: bool = False,
     dynamic_alpha: bool = True,
     plot_trajectory: bool = True,
+    sizes: Optional[Dict[str, Any]] = None,
 ):
     """Plot the experiment in a single plot
 
@@ -265,6 +266,7 @@ def plot_experiment_single(
         dynamic_alpha=dynamic_alpha,
         plot_trajectory=plot_trajectory,
         df_robots=df_robots,
+        sizes=sizes,
     )
     return ani
 
@@ -291,6 +293,7 @@ def plot_data(
     dynamic_alpha: bool = True,
     plot_trajectory: bool = True,
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    sizes: Optional[Dict[str, Any]] = None,
 ) -> Animation | None:
     """Plot the data in a single plot
 
@@ -340,6 +343,7 @@ def plot_data(
         dynamic_alpha=dynamic_alpha,
         plot_trajectory=plot_trajectory,
         df_robots=df_robots,
+        sizes=sizes,
     )
 
     ax.set_xlabel("X (m)", fontsize=fontsize)
@@ -481,6 +485,9 @@ def main():
     image_width_multi = config.get("image_width_multi", 1.0)
     bbox_pad_inches = float(config.get("bbox_pad_inches", 0.05))
     animation_writer = config.get("animation_writer", "pillow")
+    # Robots and agents drawn to their real size (see animate_agents.marker_size);
+    # absent = the legacy fixed icon sizes.
+    marker_sizes = config.get("marker_sizes")
     use_tex = args.use_tex or config.get("use_tex", False)
     if use_tex:
         pu.apply_trajectory_plot_rcparams()
@@ -550,6 +557,7 @@ def main():
                 use_odometry=use_odometry,
                 dynamic_alpha=dynamic_alpha,
                 plot_trajectory=plot_trajectory,
+                sizes=marker_sizes,
             )
 
             if not args.output_dir.joinpath(experiment_name, algorithm_name).exists():

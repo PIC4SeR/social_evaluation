@@ -1,10 +1,11 @@
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from matplotlib.offsetbox import AnnotationBbox
+from matplotlib.patches import Circle
 from matplotlib.animation import Animation, FuncAnimation
 from scipy.ndimage import gaussian_filter1d
 
@@ -106,6 +107,35 @@ def _merge_fleet_trajectories(
     return merged
 
 
+# Legacy marker sizes [m], used when no ``marker_sizes`` are configured.
+LEGACY_ROBOT_WIDTH, LEGACY_AGENT_WIDTH = 0.15, 0.13
+
+
+def marker_size(sizes: Optional[Dict[str, Any]], name: Optional[str]) -> float:
+    """Icon size [m] for a robot ``name`` (None = a pedestrian) under ``sizes``.
+
+    ``sizes`` is the trajectory config's ``marker_sizes`` block::
+
+        marker_sizes:
+          robots: {turtlebot2: 0.356, jackal: 0.49, default: 0.4}
+          agent: 0.5
+          agent_collision_radius: 0.4
+
+    A robot takes the longest ``robots`` key its name starts with (so
+    ``turtlebot2_1`` takes ``turtlebot2``), else ``default``. The size is the
+    icon's vertical side, which is the robot's length for the robot icons.
+    """
+    if sizes is None:
+        return LEGACY_AGENT_WIDTH if name is None else LEGACY_ROBOT_WIDTH
+    if name is None:
+        return float(sizes.get("agent", LEGACY_AGENT_WIDTH))
+    robots = sizes.get("robots") or {}
+    keys = [k for k in robots if k != "default" and str(name).startswith(k)]
+    if keys:
+        return float(robots[max(keys, key=len)])
+    return float(robots.get("default", LEGACY_ROBOT_WIDTH))
+
+
 def smooth_angle_series(values: np.ndarray, sigma: float = 2) -> np.ndarray:
     """Smooth angular data without introducing wraparound spins."""
     if values.size == 0:
@@ -129,6 +159,8 @@ def plot_agent(
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
     label: Optional[str] = None,
+    exact_scale: bool = False,
+    collision_radius: float = 0.0,
 ) -> None:
     """Plot the agent in the trajectory plot
 
@@ -143,6 +175,9 @@ def plot_agent(
     :param image_width_multi: Multiplier for the image width
     :param cmap: Colormap for the trajectory line
     :param dynamic_alpha: Whether to use dynamic alpha values
+    :param exact_scale: Draw the icon at exactly ``desired_width`` metres
+    :param collision_radius: If > 0, also draw a circle of this radius [m]
+        around the current position (e.g. HuNav's collision cylinder)
     """
     x = np.array(df_trajectories["position_x"].iloc[: i + 1])
     y = np.array(df_trajectories["position_y"].iloc[: i + 1])
@@ -174,10 +209,16 @@ def plot_agent(
         desired_width_px=desired_width_px,
         angle=yaw_smooth[-1],
         alpha=alpha(i),
+        exact_scale=exact_scale,
     )
     ab.set_clip_on(True)
     ab.set_clip_path(ax.patch)
     artist.append(ax.add_artist(ab))
+    if collision_radius > 0:
+        ring = Circle((x_smooth[-1], y_smooth[-1]), collision_radius, fill=False,
+                      edgecolor=cmap(0.75), linewidth=1.2, alpha=0.6)
+        ring.set_clip_path(ax.patch)
+        artist.append(ax.add_patch(ring))
 
     if static_image_size > 0 and plot_trajectory:
         len_df = len(df_trajectories)
@@ -191,6 +232,7 @@ def plot_agent(
                     desired_width_px=desired_width_px,
                     angle=yaw_smooth[j],
                     alpha=alpha(j),
+                    exact_scale=exact_scale,
                 )
                 ab_agent = AnnotationBbox(
                     image_agent_rot,
@@ -219,6 +261,8 @@ def plot_agents(
     cmap: mcolors.Colormap = plt.cm.Blues,
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
+    exact_scale: bool = False,
+    collision_radius: float = 0.0,
 ) -> None:
     """Plot the agents in the trajectory plot
 
@@ -259,6 +303,8 @@ def plot_agents(
             cmap=cmap,
             plot_trajectory=plot_trajectory,
             dynamic_alpha=dynamic_alpha,
+            exact_scale=exact_scale,
+            collision_radius=collision_radius,
         )
 
 
@@ -278,6 +324,7 @@ def animate_trajectories(
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
     robot_names: Optional[List[str]] = None,
+    sizes: Optional[Dict[str, Any]] = None,
 ) -> Optional[Animation]:
     """Animate the trajectories of the agents
 
@@ -323,6 +370,7 @@ def animate_trajectories(
             plot_trajectory=plot_trajectory,
             dynamic_alpha=dynamic_alpha,
             robot_names=robot_names,
+            sizes=sizes,
         )
 
     # The last frame carries the legend labels and the colorbar's mappable.
@@ -366,6 +414,7 @@ def plot_trajectory_frame(
     plot_trajectory: bool = True,
     dynamic_alpha: bool = True,
     robot_names: Optional[List[str]] = None,
+    sizes: Optional[Dict[str, Any]] = None,
 ) -> List[Artist]:
     """Plot the trajectory frame at a specific index
     :param df_trajectories: Dataframe with the trajectories
@@ -381,9 +430,14 @@ def plot_trajectory_frame(
     :param plot_trajectory: Whether to plot the trajectory line or not
     :param dynamic_alpha: Whether to use dynamic alpha values
 
+    :param sizes: Marker sizes in metres, drawn to scale (see marker_size);
+        None keeps the legacy fixed sizes (0.15 m robots, 0.13 m agents)
     :return: List of artists for the trajectory frame
     """
     artist = []
+    exact = sizes is not None
+    agent_width = marker_size(sizes, None)
+    collision_radius = float((sizes or {}).get("agent_collision_radius", 0.0))
     if robot_names:
         robot_cmaps = [
             _visible(cmap)
@@ -413,12 +467,13 @@ def plot_trajectory_frame(
                 norm,
                 image_robot[robot_index],
                 static_image_size,
-                desired_width=0.15,
+                desired_width=marker_size(sizes, robot_name),
                 image_width_multi=image_width_multi,
                 cmap=robot_cmaps[robot_index % len(robot_cmaps)],
                 plot_trajectory=plot_trajectory,
                 dynamic_alpha=dynamic_alpha,
                 label=robot_name,
+                exact_scale=exact,
             )
     else:
         robot_columns = ["position_x", "position_y", "velocity", "yaw"]
@@ -430,11 +485,12 @@ def plot_trajectory_frame(
             norm,
             image_robot,
             static_image_size,
-            desired_width=0.15,
+            desired_width=marker_size(sizes, "robot"),
             image_width_multi=image_width_multi,
             cmap=plt.cm.Reds,
             plot_trajectory=plot_trajectory,
             dynamic_alpha=dynamic_alpha,
+            exact_scale=exact,
         )
     plot_agents(
         ax,
@@ -445,10 +501,12 @@ def plot_trajectory_frame(
         norm,
         image_agents_walk,
         static_image_size,
-        desired_width=0.13,
+        desired_width=agent_width,
         image_width_multi=image_width_multi,
         plot_trajectory=plot_trajectory,
         dynamic_alpha=dynamic_alpha,
+        exact_scale=exact,
+        collision_radius=collision_radius,
     )
 
     return artist
@@ -468,6 +526,7 @@ def plot_trajectories(
     dynamic_alpha: bool = True,
     ax_limits: Optional[List[float]] = None,
     df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    sizes: Optional[Dict[str, Any]] = None,
 ) -> Optional[Animation]:
     """Plot the trajectories of the agents
 
@@ -524,6 +583,7 @@ def plot_trajectories(
             plot_trajectory=plot_trajectory,
             dynamic_alpha=dynamic_alpha,
             robot_names=robot_names,
+            sizes=sizes,
         )
         if ax_limits is not None:
             pu.set_ax_limits(ax, ax_limits)
@@ -562,6 +622,7 @@ def plot_trajectories(
         image_width_multi=image_width_multi,
         plot_trajectory=plot_trajectory,
         dynamic_alpha=dynamic_alpha,
+        sizes=sizes,
     )
     if ax_limits is not None:
         pu.set_ax_limits(ax, ax_limits)
