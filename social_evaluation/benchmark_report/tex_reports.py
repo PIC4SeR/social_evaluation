@@ -728,6 +728,7 @@ def generate_reports_for_scenario(
     reports_root: Optional[Path] = None,
     metric_group_keys: Optional[Sequence[str]] = None,
     logger: Logger = None,
+    weighted: bool = False,
     announce: Optional[str] = None,
 ) -> List[Path]:
     """Generate LaTeX drivers for a single scenario directory."""
@@ -752,7 +753,9 @@ def generate_reports_for_scenario(
     created.append(base_tex)
     _emit(logger, f"  wrote {_format_relative(base_tex, reports_root)}")
 
-    if any(group["weighted_table"] for group in assets["metric_groups"]):
+    if not weighted:
+        pass                      # success-weighted document only on request (weighted: true)
+    elif any(group["weighted_table"] for group in assets["metric_groups"]):
         include_paths = _build_include_paths(scenario_dir)
         weighted_tex = scenario_dir / f"{filename_prefix}_weighted.tex"
         weighted_document = _build_weighted_document(
@@ -776,6 +779,7 @@ def generate_reports_for_root(
     *,
     overwrite: bool = False,
     logger: Logger = None,
+    weighted: bool = False,
 ) -> Dict[str, List[Path]]:
     """Generate LaTeX reports for every scenario directory in ``reports_root``."""
 
@@ -805,6 +809,7 @@ def generate_reports_for_root(
                 overwrite=overwrite,
                 reports_root=reports_root,
                 logger=logger,
+                weighted=weighted,
             )
         except MissingAssetError as exc:
             _emit(logger, str(exc))

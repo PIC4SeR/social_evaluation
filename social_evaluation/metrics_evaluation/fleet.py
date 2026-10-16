@@ -358,6 +358,33 @@ def centroid_max_drift(
     return float(series["drift"].max()), series
 
 
+@metric("centroid_time_to_goal")
+def centroid_time_to_goal(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    goal: Optional[Tuple[float, float]] = None,
+    control_point_offset: float = 0.0,
+    centroid_goal_tolerance: float = 0.25,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Time from the start of the run until the fleet centroid (of the control points with
+    ``control_point_offset`` > 0) first comes within ``centroid_goal_tolerance`` of the goal: a
+    formation task's arrival, the test swarm_control's orchestrator uses (centroid_tol 0.25 m).
+    NaN without a goal or if the centroid never gets there. A perturbation task starts at its
+    set point, so it reads 0 there."""
+    if goal is None:
+        return np.nan, pd.DataFrame()
+    series = centroid_drift_series(df_robots or {}, goal, control_point_offset)
+    if series.empty:
+        return np.nan, series
+    reached = series[series["drift"] <= centroid_goal_tolerance]
+    if reached.empty:
+        return np.nan, series
+    return float(reached["time"].iloc[0] - series["time"].iloc[0]), series
+
+
 @metric("centroid_final_goal_distance")
 def centroid_final_goal_distance(
     df_agents_list: List[pd.DataFrame],

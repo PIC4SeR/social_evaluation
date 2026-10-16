@@ -165,7 +165,9 @@ def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> Non
         cmap_name: Optional[str] = None
         show_std = True
         group_keys: Optional[List[str]] = None
+        weighted_tables = False               # success-weighted tables only on request
         if isinstance(metric_tables_cfg, Mapping):
+            weighted_tables = bool(metric_tables_cfg.get("weighted", weighted_tables))
             scale = float(metric_tables_cfg.get("scale", scale))
             raw_cmap = metric_tables_cfg.get("cmap_name")
             if raw_cmap is not None:
@@ -185,6 +187,7 @@ def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> Non
             cmap_name=cmap_name,
             show_std=show_std,
             group_keys=group_keys,
+            weighted=weighted_tables,
         )
 
     anova_cfg = outputs_cfg.get("export_anova_analysis")
@@ -550,9 +553,11 @@ def _generate_tex_reports(
 
     prefix_override: Optional[str] = None
     overwrite = False
+    weighted = False                          # <prefix>_weighted.tex only on request
     if isinstance(tex_cfg, Mapping):
         prefix_override = tex_cfg.get("prefix")
         overwrite = bool(tex_cfg.get("overwrite", overwrite))
+        weighted = bool(tex_cfg.get("weighted", weighted))
 
     scenario_dir = report.output_dir()
     scenario_dir.mkdir(parents=True, exist_ok=True)
@@ -574,6 +579,7 @@ def _generate_tex_reports(
             reports_root=scenario_dir.parent,
             metric_group_keys=list(report.config.metric_groups.keys()),
             logger=_log,
+            weighted=weighted,
         )
     except MissingAssetError as exc:
         _log(f"Skipping LaTeX reports for '{report.config.scenario}': {exc}")

@@ -209,3 +209,20 @@ def test_drift_metrics_follow_the_control_points_and_the_set_point():
     assert results["centroid_max_drift"] == pytest.approx(np.hypot(0.05, 0.05))
     body, _ = ME.evaluate_metrics(*args, (1.0, 0.0), CONFIG, names, df_robots=robots)
     assert body["centroid_final_goal_distance"] == pytest.approx(0.0)
+
+
+def test_centroid_time_to_goal_is_the_first_arrival_within_tolerance():
+    from social_evaluation.metrics_evaluation.fleet import centroid_time_to_goal
+    import numpy as np
+    import pandas as pd
+    time = np.arange(0.0, 10.01, 0.5)
+    # two robots 1 m apart in x, their centroid moving along y from 0 to 5 m at 0.5 m/s
+    robots = {name: pd.DataFrame({"time": time, "position_x": np.full_like(time, x),
+                                  "position_y": 0.5 * time, "yaw": np.zeros_like(time)})
+              for name, x in (("r1", -0.5), ("r2", 0.5))}
+    value, _ = centroid_time_to_goal([], robots["r1"], df_robots=robots, goal=(0.0, 4.0),
+                                     centroid_goal_tolerance=0.25)
+    assert abs(value - 7.5) < 1e-9          # y = 3.75 at t = 7.5 s
+    never, _ = centroid_time_to_goal([], robots["r1"], df_robots=robots, goal=(3.0, 4.0))
+    assert np.isnan(never)
+    assert np.isnan(centroid_time_to_goal([], robots["r1"], df_robots=robots, goal=None)[0])

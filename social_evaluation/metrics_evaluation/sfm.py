@@ -91,6 +91,11 @@ def compute_obstacle_force(
     """
 
     df_agent_ = df_agent.copy()
+    if df_obstacles is None or df_obstacles.empty or not {"x", "y"} <= set(df_obstacles.columns):
+        # A map without static obstacles (an open field): no obstacle force.
+        df_agent_.dropna(subset=["time", "position_x"], inplace=True)
+        df_agent_["obstacle_force"] = [np.zeros(2) for _ in range(len(df_agent_))]
+        return df_agent_[["obstacle_force", "time"]]
     closest_obstacle = find_closest_obstacle(df_agent_, df_obstacles)
     df_agent_ = df_agent_.merge(closest_obstacle, on="time", how="right")
     df_agent_["obstacle_force"] = df_agent_.apply(

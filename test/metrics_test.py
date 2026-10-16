@@ -99,3 +99,15 @@ def df_agent_list():
     it is a list of dataframes containing df_human
     """
     return [df_human, df_human]
+
+
+def test_obstacle_force_is_zero_without_obstacles(df_robot):
+    """An open-field map has no static obstacles: an empty obstacle frame gives zero obstacle
+    force (it used to raise KeyError on the missing x / y columns, e.g. in social_work)."""
+    import numpy as np
+    from social_evaluation.metrics_evaluation.sfm import modulus_obstacle_force
+
+    for empty in (pd.DataFrame(), pd.DataFrame({"x": [], "y": []})):
+        out = modulus_obstacle_force(df_robot, empty)
+        assert len(out) == len(df_robot)
+        assert np.allclose(out["obstacle_force_norm"], 0.0)

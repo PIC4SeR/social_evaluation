@@ -243,7 +243,10 @@ class TableExportMixin:
         cmap_name: Optional[str] = "viridis",
         show_std: bool = True,
         group_keys: Optional[List[str]] = None,
+        weighted: bool = False,
     ) -> None:
+        """Summary table per metric group; with ``weighted`` also the success-weighted variant
+        (``<group>_weighted_summary_by_navigator.tex``), off by default."""
         output_path = self.output_dir_tables()
         output_path.mkdir(parents=True, exist_ok=True)
         groups_to_export = (
@@ -292,6 +295,8 @@ class TableExportMixin:
                 colorbar_path=colorbar_file,
                 colorbar_caption="Color scale (low to high)" if colorbar_file else None,
             )
+            if not weighted:
+                continue
             weighted_styled_df = self.get_weighted_metric_table(
                 group_key, cmap_name=cmap_name, show_std=show_std
             )
