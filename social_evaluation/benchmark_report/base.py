@@ -573,12 +573,11 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
             sr = sr.reindex(experiment_order, level=0)
             sr = sr.reindex(self.ordered_navigators, level=1)
             # Missing experiment/navigator combinations become NaN after the
-            # reindex above; fill them before the int cast (NaN -> int raises).
+            # reindex above. Kept as float: an int cast truncated 29/30 to 96.
             sr[r"\textbf{Success Rate (\%)} $\mathbf{\uparrow}$"] = (
                 sr[r"\textbf{Success Rate (\%)} $\mathbf{\uparrow}$"]
                 .round(2)
                 .fillna(0)
-                .astype(int)
             )
             self._success_rate = sr
         return self._success_rate
