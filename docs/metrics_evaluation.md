@@ -32,8 +32,8 @@ The supported social metrics are:
 - __*person_on_robot_collision*__ : the number of collisions between the robot and the people caused by the people
 - __*time_not_moving*__ : the cumulative time that the robot is not moving
 - __*completed*__ : if the robot reached the goal in the experiment
-- __*final_goal_distance*__ : the distance of the robot to the goal at the end of the experiment
-- __*minimum_goal_distance*__ : the minimum distance of the robot to the goal
+- __*final_distance_to_target*__ : the distance of the robot to the goal at the end of the experiment
+- __*minimum_distance_to_target*__ : the minimum distance of the robot to the goal
 - __*avg_robot_linear_speed*__ : the average linear speed of the robot
 - __*avg_robot_angular_speed*__ : the average angular speed of the robot
 - __*avg_acceleration*__ : the average acceleration of the robot

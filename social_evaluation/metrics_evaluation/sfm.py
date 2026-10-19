@@ -75,18 +75,44 @@ def compute_desired_force(
     return df_desired["desired_force"]
 
 
+def robot_velocity_to_world(df_robot: pd.DataFrame) -> pd.DataFrame:
+    """Copy of the robot data with ``velocity_x/y`` rotated into the world frame
+
+    The robot's velocity is extracted in its own frame (odometry twist, ground
+    truth and the transform-derived velocity alike), the people's velocities are
+    in the world frame, and the social force needs both in the same frame.
+
+    :param df_robot: DataFrame with the robot data (``yaw`` and body-frame velocity)
+    :return: DataFrame with the robot data and world-frame velocity
+    """
+    df_robot_ = df_robot.copy()
+    cos_yaw = np.cos(df_robot_["yaw"])
+    sin_yaw = np.sin(df_robot_["yaw"])
+    velocity_x = df_robot_["velocity_x"]
+    velocity_y = df_robot_["velocity_y"]
+    df_robot_["velocity_x"] = velocity_x * cos_yaw - velocity_y * sin_yaw
+    df_robot_["velocity_y"] = velocity_x * sin_yaw + velocity_y * cos_yaw
+    return df_robot_
+
+
 def compute_obstacle_force(
     df_agent: pd.DataFrame,
     df_obstacles: pd.DataFrame,
     force_factor_obstacle: float = config["force_factor_obstacle"],
     force_sigma_obstacle: float = config["force_sigma_obstacle"],
+    radius: float = config["robot_radius"],
 ) -> pd.DataFrame:
     """Compute the obstacle force for an agent
+
+    The obstacle is the nearest occupied cell of the map image. hunav_evaluator
+    averages the force of HuNav's closest-obstacle points instead (computed from
+    the Gazebo world), so the two evaluators differ on this force.
 
     :param df_agent: DataFrame with the agent data
     :param df_obstacles: DataFrame with the obstacles data
     :param force_factor_obstacle: Obstacle force factor
     :param force_sigma_obstacle: Obstacle force sigma
+    :param radius: Radius of the agent's body, subtracted from the obstacle distance
     :return: DataFrame with the obstacle force for the agent
     """
 
@@ -96,14 +122,19 @@ def compute_obstacle_force(
         df_agent_.dropna(subset=["time", "position_x"], inplace=True)
         df_agent_["obstacle_force"] = [np.zeros(2) for _ in range(len(df_agent_))]
         return df_agent_[["obstacle_force", "time"]]
-    closest_obstacle = find_closest_obstacle(df_agent_, df_obstacles)
+    closest_obstacle = find_closest_obstacle(df_agent_, df_obstacles, robot_radius=radius)
     df_agent_ = df_agent_.merge(closest_obstacle, on="time", how="right")
-    df_agent_["obstacle_force"] = df_agent_.apply(
-        lambda x: -force_factor_obstacle
-        * np.exp(-x["closest_obs_dist"] / force_sigma_obstacle)
-        * (np.array(x[["closest_obs_x", "closest_obs_y"]]) / x["closest_obs_dist"]),
-        axis=1,
+    # Repulsion away from the obstacle: the unit vector obstacle -> agent, scaled
+    # by the distance between the obstacle and the agent's body.
+    away = df_agent_[["position_x", "position_y"]].to_numpy(dtype=float) - df_agent_[
+        ["closest_obs_x", "closest_obs_y"]
+    ].to_numpy(dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        away = away / np.linalg.norm(away, axis=1)[:, None]
+    amount = force_factor_obstacle * np.exp(
+        -df_agent_["closest_obs_dist"].to_numpy(dtype=float) / force_sigma_obstacle
     )
+    df_agent_["obstacle_force"] = list(amount[:, None] * away)
     return df_agent_[["obstacle_force", "time"]]
 
 
@@ -112,6 +143,7 @@ def modulus_obstacle_force(
     df_obstacles: pd.DataFrame,
     force_factor_obstacle: float = config["force_factor_obstacle"],
     force_sigma_obstacle: float = config["force_sigma_obstacle"],
+    radius: float = config["robot_radius"],
 ):
     """Compute the obstacle force norm for an agent
 
@@ -119,12 +151,13 @@ def modulus_obstacle_force(
     :param df_obstacles: DataFrame with the obstacles data
     :param force_factor_obstacle: Obstacle force factor
     :param force_sigma_obstacle: Obstacle force sigma
+    :param radius: Radius of the agent's body, subtracted from the obstacle distance
     :return: DataFrame with the obstacle force norm for the agent
     """
 
     df_agent_ = df_agent.copy()
     obstacle_force = compute_obstacle_force(
-        df_agent_, df_obstacles, force_factor_obstacle, force_sigma_obstacle
+        df_agent_, df_obstacles, force_factor_obstacle, force_sigma_obstacle, radius
     )
     df_agent_ = df_agent_.merge(obstacle_force, on="time", how="right")
     df_agent_["obstacle_force_norm"] = df_agent_.apply(
@@ -141,7 +174,12 @@ def compute_social_force_two_agents(
     n_prime: float = config["n_prime"],
     force_factor_social: float = config["force_factor_social"],
 ) -> pd.DataFrame:
-    """Compute the social force between two agents
+    """Compute the social force exerted on agent ``_1`` by agent ``_2``
+
+    Moussaid et al. (2009), as in lightsfm and hunav_evaluator's
+    ``computeSocialForceTwoAgents``: the ``_1`` columns are the agent receiving
+    the force, the ``_2`` columns the agent provoking it. Velocities must be in
+    the world frame.
 
     :param df_interaction: DataFrame with the interaction data
     :param lambda_: Lambda parameter
@@ -149,7 +187,7 @@ def compute_social_force_two_agents(
     :param n: N parameter
     :param n_prime: N prime parameter
     :param force_factor_social: Social force factor
-    :return: DataFrame with the social force between two agents
+    :return: DataFrame with the social force on agent ``_1``
     """
 
     if df_interaction.empty:
@@ -161,66 +199,44 @@ def compute_social_force_two_agents(
         )
     df_interaction.reset_index(drop=True, inplace=True)
 
-    df_interaction["diff"] = df_interaction[["position_x_1", "position_y_1"]].apply(
-        lambda x: np.array([x["position_x_1"], x["position_y_1"]]), axis=1
-    ) - df_interaction[["position_x_2", "position_y_2"]].apply(
-        lambda x: np.array([x["position_x_2"], x["position_y_2"]]), axis=1
-    )
-    df_interaction["diff_norm"] = df_interaction.apply(
-        lambda x: np.linalg.norm(x["diff"]), axis=1
-    )
-    df_interaction["diff_direction"] = df_interaction.apply(
-        lambda x: x["diff"] / x["diff_norm"], axis=1
-    )
+    position_1 = df_interaction[["position_x_1", "position_y_1"]].to_numpy(dtype=float)
+    position_2 = df_interaction[["position_x_2", "position_y_2"]].to_numpy(dtype=float)
+    velocity_1 = df_interaction[["velocity_x_1", "velocity_y_1"]].to_numpy(dtype=float)
+    velocity_2 = df_interaction[["velocity_x_2", "velocity_y_2"]].to_numpy(dtype=float)
 
-    df_interaction["vel_diff"] = df_interaction[["velocity_x_1", "velocity_y_1"]].apply(
-        lambda x: np.array([x["velocity_x_1"], x["velocity_y_1"]]), axis=1
-    ) - df_interaction[["velocity_x_2", "velocity_y_2"]].apply(
-        lambda x: np.array([x["velocity_x_2"], x["velocity_y_2"]]), axis=1
-    )
-    df_interaction["interaction_vector"] = (
-        df_interaction["diff"] + lambda_ * df_interaction["vel_diff"]
-    )
-    df_interaction["interaction_length"] = df_interaction["interaction_vector"].apply(
-        np.linalg.norm
-    )
-    df_interaction["interaction_direction"] = df_interaction[
-        "interaction_vector"
-    ].apply(lambda x: x / np.linalg.norm(x))
-    df_interaction["theta"] = df_interaction.apply(
-        lambda x: np.arctan2(x["diff"][1], x["diff"][0])
-        - np.arctan2(x["interaction_direction"][1], x["interaction_direction"][0]),
-        axis=1,
-    )
-    df_interaction["theta"] = df_interaction["theta"].apply(normalize_angle)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        # receiver -> source
+        diff = position_2 - position_1
+        diff_norm = np.linalg.norm(diff, axis=1)
+        diff_direction = diff / diff_norm[:, None]
 
-    df_interaction["B"] = gamma * df_interaction["interaction_length"]
-    df_interaction["force_velocity_amount"] = df_interaction.apply(
-        lambda x: -np.exp(
-            -x["diff_norm"] / x["B"] - (n_prime * x["B"] * x["theta"]) ** 2
-        ),
-        axis=1,
-    )
-    df_interaction["force_angle_amount"] = df_interaction.apply(
-        lambda x: -np.sign(x["theta"])
-        * np.exp(-x["diff_norm"] / x["B"] - (n * x["B"] * x["theta"]) ** 2),
-        axis=1,
-    )
+        interaction_vector = lambda_ * (velocity_1 - velocity_2) + diff_direction
+        interaction_length = np.linalg.norm(interaction_vector, axis=1)
+        interaction_direction = interaction_vector / interaction_length[:, None]
+        theta = normalize_angle(
+            np.arctan2(diff_direction[:, 1], diff_direction[:, 0])
+            - np.arctan2(interaction_direction[:, 1], interaction_direction[:, 0])
+        )
 
-    df_interaction["force_velocity"] = (
-        df_interaction["force_velocity_amount"]
-        * df_interaction["interaction_direction"]
-    )
-    df_interaction["interaction_direction_left_normal"] = df_interaction[
-        "interaction_direction"
-    ].apply(lambda x: np.array([-x[1], x[0]]))
-    df_interaction["force_angle"] = (
-        df_interaction["force_angle_amount"]
-        * df_interaction["interaction_direction_left_normal"]
-    )
-    df_interaction["social_force"] = force_factor_social * (
-        df_interaction["force_velocity"] + df_interaction["force_angle"]
-    )
+        B = gamma * interaction_length
+        force_velocity_amount = -np.exp(-diff_norm / B - (n_prime * B * theta) ** 2)
+        force_angle_amount = -np.sign(theta) * np.exp(
+            -diff_norm / B - (n * B * theta) ** 2
+        )
+        interaction_direction_left_normal = np.column_stack(
+            [-interaction_direction[:, 1], interaction_direction[:, 0]]
+        )
+        social_force = force_factor_social * (
+            force_velocity_amount[:, None] * interaction_direction
+            + force_angle_amount[:, None] * interaction_direction_left_normal
+        )
+    # Coincident agents or a vanishing interaction vector leave the direction
+    # undefined: no force there (missing inputs stay missing).
+    inputs_known = np.isfinite(
+        np.hstack([position_1, position_2, velocity_1, velocity_2])
+    ).all(axis=1)
+    social_force[inputs_known & ~np.isfinite(social_force).all(axis=1)] = 0.0
+    df_interaction["social_force"] = list(social_force)
     return df_interaction[["time", "social_force"]]
 
 
@@ -295,7 +311,8 @@ def compute_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
 
     df_agent_ = df_agent.copy()
     for i, agent in enumerate(df_agents):
-        df_interaction = combine_df_robot_and_agent(df_agent, agent)
+        # the other agent receives the force (``_1``), the agent examined provokes it
+        df_interaction = combine_df_robot_and_agent(agent, df_agent)
         df_interaction.dropna(inplace=True)
         # use time as index to join the dataframes
         social_force = compute_social_force_two_agents(df_interaction)
@@ -325,7 +342,8 @@ def modulus_social_force_dual(df_agent: pd.DataFrame, df_agents: List[pd.DataFra
     df_agent_ = df_agent.copy()
     valid_agents = []
     for i, agent in enumerate(df_agents):
-        df_interaction = combine_df_robot_and_agent(df_agent, agent)
+        # the other agent receives the force (``_1``), the agent examined provokes it
+        df_interaction = combine_df_robot_and_agent(agent, df_agent)
         df_interaction.dropna(inplace=True)
         if df_interaction.empty:
             continue
@@ -350,13 +368,15 @@ def compute_social_work(
     df_robot: pd.DataFrame,
     df_agents_list: List[pd.DataFrame],
     df_obstacles: pd.DataFrame,
+    robot_radius: float = config["robot_radius"],
 ) -> pd.DataFrame:
     """
     It computes the social work of the robot in the environment plus the social work provoked by the robot in the other agents
 
-    :param df_robot: DataFrame with the robot data
+    :param df_robot: DataFrame with the robot data (world-frame velocity)
     :param df_agents_list: List of DataFrames with the other agents data
     :param df_obstacles: DataFrame with the obstacles data
+    :param robot_radius: Radius of the robot
     :return: DataFrame with the social work of the robot in the environment plus the social work provoked by the robot in the other agents
     """
 
@@ -364,7 +384,9 @@ def compute_social_work(
     df_agents_list_ = df_agents_list.copy()
     social_force = compute_social_force(df_robot, df_agents_list_)
     df_robot_ = df_robot_.merge(social_force, on="time", how="right")
-    obstacle_force_norm = modulus_obstacle_force(df_robot, df_obstacles)
+    obstacle_force_norm = modulus_obstacle_force(
+        df_robot, df_obstacles, radius=robot_radius
+    )
     df_robot_ = df_robot_.merge(obstacle_force_norm, on="time", how="right")
     df_robot_.ffill(inplace=True)
     for df_agent in df_agents_list_:

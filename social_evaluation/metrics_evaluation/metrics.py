@@ -17,6 +17,7 @@ from social_evaluation.metrics_evaluation.metrics_utils import (
     distance_to_closest_person,
     indicator_function,
     closest_agent_to_robot,
+    time_integral,
 )
 
 from social_evaluation.metrics_evaluation.sfm import (
@@ -24,6 +25,7 @@ from social_evaluation.metrics_evaluation.sfm import (
     modulus_social_force,
     compute_social_work,
     modulus_obstacle_force,
+    robot_velocity_to_world,
 )
 
 # Teaching Robot Navigation Behaviors to Optimal RRT Planners
@@ -55,13 +57,13 @@ from social_evaluation.metrics_evaluation.sfm import (
     - goal: tuple with the goal position (x, y)
     - robot_radius: float with the robot's radius
     - agent_radius: float with the agent's radius
-    - period: int with the period for computing the metrics
     - min_velocity: float with the minimum velocity for considering the robot not moving
     - min_angular_velocity: float with the minimum angular velocity for considering the robot not moving
     - goal_tolerance: float with the goal tolerance for considering the goal reached
-    - max_accel: float with the maximum acceleration
-    - max_jerk: float with the maximum jerk
-    - alpha: float with the exponential moving average factor
+    - max_accel: float with the acceleration above which a value is an outlier
+    - max_jerk: float with the jerk above which a value is an outlier
+    - rate_window: float with the seconds acceleration and jerk are differenced over
+    - smoothing_time: float with the time constant (s) of their moving average
     - dist_threshold: float with the distance threshold for considering a collision with a static obstacle
 
     The metrics return a tuple with the metric value and a pandas DataFrame with the metric values over time.
@@ -86,8 +88,8 @@ from social_evaluation.metrics_evaluation.sfm import (
     - person_on_robot_collision: Check for collisions between the robot and people
     - time_not_moving: Compute the time the robot is not moving
     - completed: Check if the robot reached the goal
-    - final_goal_distance: Compute the distance between the last robot position and the target position
-    - minimum_goal_distance: Compute the closest the robot passes to the target position
+    - final_distance_to_target: Compute the distance between the last robot position and the target position
+    - minimum_distance_to_target: Compute the closest the robot passes to the target position
     - avg_robot_linear_speed: Compute the average robot linear speed
     - avg_robot_angular_speed: Compute the average robot angular speed
     - avg_acceleration: Compute the average robot acceleration
@@ -102,6 +104,16 @@ from social_evaluation.metrics_evaluation.sfm import (
     - obstacle_force_on_robot: Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot
 
 """
+
+
+def robot_speed(df_robot: pd.DataFrame) -> pd.Series:
+    """The robot's speed, whatever the frame of its velocity (hunav_evaluator's linear_vel)
+
+    :param df_robot: pandas DataFrame with the robot's data
+    :return: Series with the robot's speed
+    """
+    velocity_y = df_robot["velocity_y"] if "velocity_y" in df_robot else 0.0
+    return np.hypot(df_robot["velocity_x"], velocity_y)
 
 
 @metric("experiment_result")
@@ -132,26 +144,22 @@ def total_time(
     *args,
     goal: Tuple[float, float],
     goal_tolerance: float = 0.3,
-    robot_radius: float = 0.3,
     **kwargs,
 ) -> float:
-    """Compute the total time of the robot's trajectory
+    """Compute the time until the robot first comes within ``goal_tolerance`` of
+    the goal (its centre), or the whole run when it never does
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
     :param goal: tuple with the goal position (x, y)
     :param goal_tolerance: float with the goal tolerance for considering the goal reached
-    :param robot_radius: float with the robot's radius
     :return: float with the total time of the robot's trajectory
     """
 
-    if time_goal_reached(df_robot, goal, goal_tolerance, robot_radius) is not None:
-        return (
-            time_goal_reached(df_robot, goal, goal_tolerance, robot_radius)
-            - df_robot.time.iloc[0]
-        )
-    else:
-        return df_robot.dropna().time.iloc[-1] - df_robot.time.iloc[0]
+    reached = time_goal_reached(df_robot, goal, goal_tolerance)
+    if reached is not None:
+        return reached - df_robot.time.iloc[0]
+    return df_robot.dropna().time.iloc[-1] - df_robot.time.iloc[0]
 
 
 @metric("path_length")
@@ -165,7 +173,6 @@ def robot_path_length(
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
-    :param period: int with the period for computing the metrics
     :return: float with the total length of the robot's trajectory
     """
 
@@ -192,10 +199,9 @@ def cumulative_heading_changes(
     :param df_robot: pandas DataFrame with the robot's data
     :return: float with the cumulative heading changes of the robot
     """
-    # normalize the angles
+    # wrap every heading change to [-pi, pi] so crossing +-pi is not a full turn
     df_robot_ = df_robot.copy().dropna()
-    yaw = df_robot_.yaw.apply(normalize_angle)
-    return np.sum(np.abs(np.diff(yaw)))
+    return np.sum(np.abs(normalize_angle(np.diff(df_robot_.yaw.to_numpy()))))
 
 
 @metric("avg_distance_to_closest_person")
@@ -366,15 +372,21 @@ def robot_on_person_collision(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[int, pd.DataFrame]:
     """Check for collisions between the robot and people
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
+    :param robot_radius: float with the robot's radius
+    :param agent_radius: float with the agent's radius
     :return: int with the number of collisions between the robot and people
     """
-    robot_collisions, _, df_agents = check_collisions(df_agents_list, df_robot)
+    robot_collisions, _, df_agents = check_collisions(
+        df_agents_list, df_robot, robot_radius, agent_radius
+    )
     return robot_collisions, df_agents
 
 
@@ -383,15 +395,21 @@ def person_on_robot_collision(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[int, pd.DataFrame]:
     """Check for collisions between the robot and people
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
+    :param robot_radius: float with the robot's radius
+    :param agent_radius: float with the agent's radius
     :return: int with the number of collisions between the robot and people
     """
-    _, person_collisions, df_agents = check_collisions(df_agents_list, df_robot)
+    _, person_collisions, df_agents = check_collisions(
+        df_agents_list, df_robot, robot_radius, agent_radius
+    )
     return person_collisions, df_agents
 
 
@@ -400,7 +418,6 @@ def time_not_moving(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
-    period: int = 1,
     min_velocity: float = 0.01,
     min_angular_velocity: float = 0.02,
     **kwargs,
@@ -409,21 +426,15 @@ def time_not_moving(
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
-    :param period: int with the period for computing the metrics
     :param min_velocity: float with the minimum velocity for considering the robot not moving
     :param min_angular_velocity: float with the minimum angular velocity for considering the robot not moving
     :return: float with the time the robot is not moving
     """
-    not_moving = df_robot.apply(
-        lambda x: (
-            1
-            if abs(x["velocity_x"]) < min_velocity
-            and abs(abs(x["angular_velocity_z"]) < min_angular_velocity)
-            else 0
-        ),
-        axis=1,
-    )
-    time_stopped = df_robot.time.diff(periods=period) * not_moving
+    not_moving = (
+        (robot_speed(df_robot) < min_velocity)
+        & (df_robot["angular_velocity_z"].abs() < min_angular_velocity)
+    ).astype(int)
+    time_stopped = df_robot.time.diff() * not_moving
     return time_stopped.sum(), not_moving
 
 
@@ -433,23 +444,25 @@ def goal_reached(
     df_robot: pd.DataFrame,
     *args,
     goal: Tuple[float, float],
-    goal_tolerance: float = 0.5,
-    robot_radius: float = 0.3,
+    goal_tolerance: float = 0.3,
     **kwargs,
 ) -> bool:
-    """Check if the robot reached the goal
+    """Check if the robot ended the run at the goal (SEAN 2.0): its final
+    position within ``goal_tolerance`` of the goal (its centre)
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
     :param goal: tuple with the goal position (x, y)
     :param goal_tolerance: float with the goal tolerance for considering the goal reached
-    :param robot_radius: float with the robot's radius
     :return: bool with True if the robot reached the goal, False otherwise
     """
-    return time_goal_reached(df_robot, goal, goal_tolerance, robot_radius) is not None
+    final = df_robot.dropna(subset=["position_x", "position_y"]).iloc[-1]
+    return bool(
+        np.hypot(final.position_x - goal[0], final.position_y - goal[1]) < goal_tolerance
+    )
 
 
-@metric("final_goal_distance")
+@metric("final_distance_to_target")
 def final_goal_distance(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
@@ -471,7 +484,7 @@ def final_goal_distance(
     return np.linalg.norm([x - goal[0], y - goal[1]])
 
 
-@metric("minimum_goal_distance")
+@metric("minimum_distance_to_target")
 def minimum_goal_distance(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
@@ -510,7 +523,8 @@ def avg_robot_linear_speed(
     :param df_robot: pandas DataFrame with the robot's data
     :return: float with the average robot linear speed
     """
-    return df_robot.velocity_x.abs().mean(), df_robot.velocity_x.abs()
+    speed = robot_speed(df_robot)
+    return speed.mean(), speed
 
 
 @metric("avg_robot_angular_speed")
@@ -529,27 +543,51 @@ def avg_robot_angular_speed(
     return df_robot.angular_velocity_z.abs().mean(), df_robot.angular_velocity_z
 
 
+def rate_filter(
+    df: pd.DataFrame, rate_window: float, smoothing_time: float
+) -> Tuple[int, float]:
+    """The sample count and moving-average factor of a rate over ``rate_window``
+    seconds smoothed with time constant ``smoothing_time``, at this data's median
+    sample step. Fixing them in seconds keeps acceleration and jerk comparable
+    between data recorded at 10 Hz and at 100 Hz.
+
+    :param df: pandas DataFrame with a time column
+    :param rate_window: seconds each rate is differenced over
+    :param smoothing_time: time constant (s) of the exponential moving average
+    :return: (samples per rate window, moving-average factor)
+    """
+    times = np.unique(df["time"].dropna().to_numpy(dtype=float))
+    dt = float(np.median(np.diff(times))) if len(times) > 1 else rate_window
+    period = max(1, int(round(rate_window / dt)))
+    return period, float(1.0 - np.exp(-dt / smoothing_time))
+
+
 @metric("avg_acceleration")
 def avg_acceleration(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
-    period: int = 5,
-    max_accel: float = 1.0,
-    alpha: float = 0.1,
+    rate_window: float = 0.5,
+    max_accel: float = 2.5,
+    smoothing_time: float = 0.949,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the average robot acceleration
+    """Compute the average magnitude of the robot's acceleration
+
+    The speed is differenced over ``rate_window`` seconds, values above
+    ``max_accel`` are treated as outliers and interpolated, then smoothed with
+    an exponential moving average of time constant ``smoothing_time`` seconds.
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
-    :param period: int with the period for computing the metrics
-    :param max_accel: float with the maximum acceleration
-    :param alpha: float with the exponential moving average factor
+    :param rate_window: float with the seconds the speed is differenced over
+    :param max_accel: float with the acceleration (m/s^2) above which a value is an outlier
+    :param smoothing_time: float with the time constant (s) of the moving average
     :return: float with the average robot acceleration
     """
+    period, alpha = rate_filter(df_robot, rate_window, smoothing_time)
     df_robot_ = df_robot.copy()
-    df_robot_["acceleration"] = df_robot.velocity_x.abs().diff(
+    df_robot_["acceleration"] = robot_speed(df_robot).diff(
         periods=period
     ) / df_robot.time.diff(periods=period)
     # Null only the outlier acceleration values (not the whole row) so they can
@@ -562,7 +600,7 @@ def avg_acceleration(
     df_robot_.reset_index(drop=True, inplace=True)
     df_robot_["acceleration"] = df_robot_["acceleration"].ewm(alpha=alpha).mean()
 
-    return df_robot_["acceleration"].mean(), df_robot_[["time", "acceleration"]]
+    return df_robot_["acceleration"].abs().mean(), df_robot_[["time", "acceleration"]]
 
 
 @metric("avg_overacceleration")
@@ -570,26 +608,32 @@ def avg_overacceleration(
     df_agents_list: List[pd.DataFrame],
     df_robot: pd.DataFrame,
     *args,
-    period: int = 5,
-    max_accel: float = 1.0,
-    max_jerk: float = 1.0,
-    alpha: float = 0.1,
+    rate_window: float = 0.5,
+    max_accel: float = 2.5,
+    max_jerk: float = 2.5,
+    smoothing_time: float = 0.949,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the average robot over-acceleration
+    """Compute the average magnitude of the robot's jerk (over-acceleration): the
+    rate of change of the filtered acceleration, filtered the same way
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
-    :param period: int with the period for computing the metrics
-    :param max_accel: float with the maximum acceleration
-    :param max_jerk: float with the maximum jerk
-    :param alpha: float with the exponential moving average factor
+    :param rate_window: float with the seconds each rate is differenced over
+    :param max_accel: float with the acceleration (m/s^2) above which a value is an outlier
+    :param max_jerk: float with the jerk (m/s^3) above which a value is an outlier
+    :param smoothing_time: float with the time constant (s) of the moving average
     :return: float with the average robot over-acceleration
     """
 
+    period, alpha = rate_filter(df_robot, rate_window, smoothing_time)
     df_robot_ = df_robot.copy()
     _, df_acceleration = avg_acceleration(
-        df_agents_list, df_robot_, period=period, max_accel=max_accel, alpha=alpha
+        df_agents_list,
+        df_robot_,
+        rate_window=rate_window,
+        max_accel=max_accel,
+        smoothing_time=smoothing_time,
     )
     df_acceleration["jerk"] = df_acceleration.acceleration.diff(
         periods=period
@@ -604,7 +648,7 @@ def avg_overacceleration(
     df_acceleration.reset_index(drop=True, inplace=True)
     df_acceleration["jerk"] = df_acceleration["jerk"].ewm(alpha=alpha).mean()
 
-    return df_acceleration["jerk"].mean(), df_acceleration[["time", "jerk"]]
+    return df_acceleration["jerk"].abs().mean(), df_acceleration[["time", "jerk"]]
 
 
 # Learning a Group-Aware Policy for Robot Navigation
@@ -687,18 +731,19 @@ def social_force_on_agents(
     *args,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the cumulative modulus of the social force provoked by the robot to the agents
+    """Compute the modulus of the social force provoked by the robot to the agents,
+    integrated over time
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
-    :return: float with the cumulative modulus of the social force provoked by the robot to the agents
+    :return: float with the time integral (N s) of the social force provoked by the robot to the agents
     """
 
-    df_robot_ = df_robot.copy()
+    df_robot_ = robot_velocity_to_world(df_robot)
     social_force_dual_norm = modulus_social_force_dual(df_robot_, df_agents_list)
     df_robot_ = df_robot_.merge(social_force_dual_norm, on="time", how="left")
     return (
-        df_robot_["social_force_dual_norm"].sum(),
+        time_integral(df_robot_, "social_force_dual_norm"),
         df_robot_[["time", "social_force_dual_norm"]],
     )
 
@@ -710,18 +755,19 @@ def social_force_on_robot(
     *args,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    df_robot_ = df_robot.copy()
-    """Compute the cumulative modulus of the social force provoked by the agents to the robot
-    
+    """Compute the modulus of the social force provoked by the agents to the robot,
+    integrated over time
+
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
-    :return: float with the cumulative modulus of the social force provoked by the agents to the robot
+    :return: float with the time integral (N s) of the social force provoked by the agents to the robot
     """
+    df_robot_ = robot_velocity_to_world(df_robot)
 
     social_force_norm = modulus_social_force(df_robot_, df_agents_list)
     df_robot_ = df_robot_.merge(social_force_norm, on="time", how="left")
     return (
-        df_robot_["social_force_norm"].sum(),
+        time_integral(df_robot_, "social_force_norm"),
         df_robot_[["time", "social_force_norm"]],
     )
 
@@ -736,20 +782,24 @@ def social_work(
     df_robot: pd.DataFrame,
     *args,
     df_obstacles: pd.DataFrame,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> float:
-    """Compute the cumulative social work employed in this planner
+    """Compute the social work employed in this planner, integrated over time
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
     :param df_obstacles: pandas DataFrame with the obstacles' data
-    :return: float with the cumulative social work employed in this planner
+    :param robot_radius: float with the robot's radius
+    :return: float with the time integral (N s) of the social work employed in this planner
     """
     df_robot_ = df_robot.copy()
 
-    social_work = compute_social_work(df_robot.copy(), df_agents_list, df_obstacles)
+    social_work = compute_social_work(
+        robot_velocity_to_world(df_robot), df_agents_list, df_obstacles, robot_radius
+    )
     df_robot_ = df_robot_.merge(social_work, on="time", how="left")
-    return df_robot_["social_work"].sum(), df_robot_[["time", "social_work"]]
+    return time_integral(df_robot_, "social_work"), df_robot_[["time", "social_work"]]
 
 
 # social work per second or social power
@@ -759,27 +809,31 @@ def social_work_per_second(
     df_robot: pd.DataFrame,
     *args,
     df_obstacles: pd.DataFrame,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> float:
-    """Compute the cumulative social work employed in this planner per msg
+    """Compute the social work employed in this planner per second: its time
+    integral over the time it was measured
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
     :param df_obstacles: pandas DataFrame with the obstacles' data
-    :return: float with the cumulative social work employed in this planner per second
+    :param robot_radius: float with the robot's radius
+    :return: float with the social work employed in this planner per second (N)
     """
 
     df_robot_ = df_robot.copy().dropna()
-    _, df_social_work = social_work(
-        df_agents_list=df_agents_list, df_robot=df_robot_, df_obstacles=df_obstacles
+    total, df_social_work = social_work(
+        df_agents_list=df_agents_list,
+        df_robot=df_robot_,
+        df_obstacles=df_obstacles,
+        robot_radius=robot_radius,
     )
-    df_robot_ = df_robot_.merge(df_social_work, on="time", how="left")
-    if df_robot_["social_work"].count() == 0:
-        return 0, df_robot_[["time", "social_work"]]
-    return (
-        df_robot_["social_work"].sum() / df_robot_["social_work"].count(),
-        df_robot_[["time", "social_work"]],
-    )
+    measured = df_social_work.dropna()
+    duration = measured["time"].max() - measured["time"].min() if len(measured) else 0.0
+    if not duration > 0:
+        return 0, df_social_work
+    return total / duration, df_social_work
 
 
 @metric("obstacle_force_on_agents")
@@ -788,26 +842,34 @@ def obstacle_force_on_agents(
     df_robot: pd.DataFrame,
     *args,
     df_obstacles: pd.DataFrame,
+    agent_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the agents
+    """Compute the modulus of the obstacle force provoked by the obstacles to the agents,
+    integrated over time and averaged over the agents
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
     :param df_obstacles: pandas DataFrame with the obstacles' data
+    :param agent_radius: float with the agent's radius
     :return: float with the cumulative modulus of the obstacle force provoked by the obstacles to the agents
     """
 
     new_df_agents_list = []
     for df_agent in df_agents_list:
-        obstacle_force_norm = modulus_obstacle_force(df_agent, df_obstacles)
+        obstacle_force_norm = modulus_obstacle_force(
+            df_agent, df_obstacles, radius=agent_radius
+        )
         obstacle_force_norm.drop(columns=["obstacle_force"], inplace=True)
         df_agent = df_agent.merge(obstacle_force_norm, on="time", how="left")
         new_df_agents_list.append(df_agent)
     df_agents = combine_df_agents(new_df_agents_list)
     return (
         np.mean(
-            [df_agent["obstacle_force_norm"].sum() for df_agent in new_df_agents_list]
+            [
+                time_integral(df_agent, "obstacle_force_norm")
+                for df_agent in new_df_agents_list
+            ]
         ),
         df_agents[
             [
@@ -827,21 +889,26 @@ def obstacle_force_on_robot(
     df_robot: pd.DataFrame,
     *args,
     df_obstacles: pd.DataFrame,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> Tuple[float, pd.DataFrame]:
-    """Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot
+    """Compute the modulus of the obstacle force provoked by the obstacles to the robot,
+    integrated over time
 
     :param df_agents_list: list of pandas DataFrames with the agents' data
     :param df_robot: pandas DataFrame with the robot's data
     :param df_obstacles: pandas DataFrame with the obstacles' data
+    :param robot_radius: float with the robot's radius
     :return: float with the cumulative modulus of the obstacle force provoked by the obstacles to the robot
     """
 
     df_robot_ = df_robot.copy()
-    obstacle_force_norm = modulus_obstacle_force(df_robot, df_obstacles)
+    obstacle_force_norm = modulus_obstacle_force(
+        df_robot, df_obstacles, radius=robot_radius
+    )
     df_robot_ = df_robot_.merge(obstacle_force_norm, on="time", how="left")
     return (
-        df_robot_["obstacle_force_norm"].sum(),
+        time_integral(df_robot_, "obstacle_force_norm"),
         df_robot_[["time", "obstacle_force_norm"]],
     )
 
@@ -863,6 +930,7 @@ def static_obs_collision(
     *args,
     df_obstacles: pd.DataFrame,
     distance_threshold: float = 0.5,
+    robot_radius: float = 0.3,
     **kwargs,
 ) -> int:
     """Compute the number of times the robot collides with a static obstacle
@@ -871,12 +939,15 @@ def static_obs_collision(
     :param df_robot: pandas DataFrame with the robot's data
     :param df_obstacles: pandas DataFrame with the obstacles' data
     :param distance_threshold: float with the distance threshold for considering a collision
+    :param robot_radius: float with the robot's radius
     :return: int with the number of times the robot collides with a static obstacle
     """
 
     # count the number of times the robot collides with a static obstacle
     df_robot_ = df_robot.copy()
-    closeset_obstacle = find_closest_obstacle(df_robot, df_obstacles)
+    closeset_obstacle = find_closest_obstacle(
+        df_robot, df_obstacles, robot_radius=robot_radius
+    )
     df_robot_ = df_robot_.merge(closeset_obstacle, on="time", how="left")
     df_robot_["collision"] = df_robot_["closest_obs_dist"] < distance_threshold
     return df_robot_["collision"].sum(), df_robot_[["time", "collision"]]

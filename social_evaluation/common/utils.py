@@ -52,25 +52,23 @@ def _interpolate_with_fallback(
 def time_goal_reached(
     df: pd.DataFrame,
     goal_position: Tuple[float, float],
-    threshold: float = 0.5,
-    robot_radius: float = 0.3,
+    threshold: float = 0.3,
 ) -> Union[float, None]:
-    """Get the time when the robot reached the goal position
+    """Get the time when the robot first came within ``threshold`` of the goal
 
     :param df: Dataframe with the robot data
     :param goal_position: The goal position
-    :param threshold: The threshold distance to consider the goal reached
-    :param robot_radius: The radius of the robot
-    :return: The time when the goal was reached
+    :param threshold: The goal tolerance, on the distance of the robot's centre
+    :return: The time when the goal was reached, None if it never was
     """
 
-    df["distance_to_goal"] = (
+    distance_to_goal = (
         (df["position_x"] - goal_position[0]) ** 2
         + (df["position_y"] - goal_position[1]) ** 2
     ) ** 0.5
-    # return the time when the goal was reached
-    if df["distance_to_goal"].min() < threshold + robot_radius:
-        return df[df["distance_to_goal"] < threshold + robot_radius].iloc[0]["time"]
+    reached = df.loc[distance_to_goal < threshold, "time"]
+    if not reached.empty:
+        return reached.iloc[0]
 
 
 def normalize_angle(angle: float) -> float:
