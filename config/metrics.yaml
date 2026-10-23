@@ -21,6 +21,7 @@ metrics_config:
   goal_tolerance: 0.4  # = the Nav2 goal checker (xy_goal_tolerance) of these runs
   smoothing_time: 0.949  # s, time constant of their moving average (= alpha 0.1 at 10 Hz)
   distance_threshold: 0.2
+  interaction_distance: 3.6  # m body gap: social_work_interaction averages only while someone is this close
 
 metrics:
   # - time_to_reach_goal
@@ -53,6 +54,7 @@ metrics:
   - social_force_on_robot
   - social_work
   - social_work_per_second
+  - social_work_interaction
   - obstacle_force_on_agents
   - obstacle_force_on_robot
   # Fleet metrics -- need per-robot data (a `robots:` mapping in the

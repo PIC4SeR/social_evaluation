@@ -50,6 +50,9 @@ setup(
         "argparse",
         "tf-transformations",
         "transforms3d>=0.4.1",
+        # Statistics in benchmark_report (scipy comes with both).
+        "statsmodels",
+        "scikit-posthocs",
     ],
     entry_points={
         "console_scripts": [

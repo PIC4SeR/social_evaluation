@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from social_evaluation.metrics_evaluation_ import fleet_value
 from social_evaluation.metrics_evaluation.metrics_utils import metrics, detect_groups
 from social_evaluation.metrics_evaluation.sfm import (
     compute_obstacle_force,
@@ -292,6 +293,23 @@ def test_cumulative_metrics_do_not_depend_on_the_sampling_rate(dt):
     per_second, _ = metrics["social_work_per_second"]([person], robot, **options)
     assert work == pytest.approx(10.0 * 2 * force, rel=1e-6)  # force on the robot + its dual
     assert per_second == pytest.approx(work / 10.0, rel=1e-6)
+
+
+def test_social_work_interaction_ignores_time_without_people():
+    # a person next to the robot for the first half, 20 m away for the second
+    options = dict(df_obstacles=pd.DataFrame(), robot_radius=ROBOT_RADIUS, agent_radius=0.3)
+    near_then_far = _person(position_x=np.where(TIME < 5.0, 1.0, 20.0))
+    per_second, _ = metrics["social_work_per_second"]([near_then_far], _track(), **options)
+    interaction, frame = metrics["social_work_interaction"]([near_then_far], _track(), **options)
+    assert frame["interacting"].mean() == pytest.approx(0.5, abs=0.05)
+    assert interaction > 1.8 * per_second  # the far half no longer dilutes it
+    always, _ = metrics["social_work_interaction"]([_person(position_x=1.0)], _track(), **options)
+    always_per_second, _ = metrics["social_work_per_second"]([_person(position_x=1.0)], _track(), **options)
+    assert always == pytest.approx(always_per_second, rel=0.02)
+    nobody, _ = metrics["social_work_interaction"]([_person(position_x=20.0)], _track(), **options)
+    assert np.isnan(nobody)  # no interaction to measure
+    # a fleet averages its interacting robots only (fleet_value's nanmean)
+    assert fleet_value("social_work_interaction", [always, nobody]) == pytest.approx(always)
 
 
 def test_robot_speed_is_the_full_speed():

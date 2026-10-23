@@ -27,7 +27,7 @@ from social_evaluation.benchmark_report.utils import (
     rename_metrics_columns,
 )
 
-from .anova import AnovaMixin
+from .stats import StatsMixin
 from .config import BenchmarkConfig
 from .plots import PlottingMixin
 from .rliable import RliableMixin
@@ -43,7 +43,7 @@ def _apply_benchmark_report_rcparams() -> None:
     plt.rcParams["font.weight"] = "bold"
 
 
-class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMixin):
+class BenchmarkReportBase(StatsMixin, RliableMixin, PlottingMixin, TableExportMixin):
     sns.set_context("paper")
     _apply_benchmark_report_rcparams()
     """Encapsulate data loading, formatting, and shared helpers."""
@@ -74,6 +74,7 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
             for navigator in config.navigators
         ]
         self._category_cmap_name = "Paired"
+        self.load_warnings: List[str] = []
         self.metrics_results = self._load_metrics()
         self.metrics_results_parsed = parse_experiment_result(self.metrics_results)
         if self.config.discard_failed_metrics:
@@ -327,9 +328,12 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
             env = metrics_results["source_dir"].str.split("/").str[1]
             tags = metrics_results[experiment_column].astype(str)
             needs_prefix = env.notna() & ~tags.str.contains("/")
-            metrics_results.loc[needs_prefix, experiment_column] = (
-                env[needs_prefix] + "/" + tags[needs_prefix]
-            )
+            # Flat layouts (<root>/<env>/...) have no env level: nothing to prefix,
+            # and an all-NaN (float) env column cannot be added to strings.
+            if needs_prefix.any():
+                metrics_results.loc[needs_prefix, experiment_column] = (
+                    env[needs_prefix].astype(str) + "/" + tags[needs_prefix]
+                )
             metrics_results = metrics_results.drop(columns=["source_dir"])
         algorithm_column = next(
             (col for col in ("algorithm", "navigator") if col in metrics_results.columns),
@@ -341,10 +345,27 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
             )
         mask_experiments = metrics_results[experiment_column].isin(self.config.episodes)
         mask_algorithms = metrics_results[algorithm_column].isin(self.config.navigators)
-        mask = mask_experiments & mask_algorithms
-        df = metrics_results.loc[mask].copy()
+        df = metrics_results.loc[mask_experiments & mask_algorithms].copy()
         if df.empty:
-            df = metrics_results.loc[mask_algorithms].copy()
+            found_episodes = sorted(
+                metrics_results.loc[mask_algorithms, experiment_column].astype(str).unique()
+            )
+            found_navigators = sorted(metrics_results[algorithm_column].astype(str).unique())
+            raise ValueError(
+                f"No runs in {self.config.root_dir} match scenario "
+                f"'{self.config.scenario}'. Configured episodes: {self.config.episodes}; "
+                f"episodes found for the configured navigators: {found_episodes}. "
+                f"Configured navigators: {self.config.navigators}; "
+                f"navigators found: {found_navigators}."
+            )
+        missing_episodes = sorted(set(self.config.episodes) - set(df[experiment_column]))
+        if missing_episodes:
+            self.load_warnings.append(f"No runs for episodes: {', '.join(missing_episodes)}")
+        missing_navigators = [
+            n for n in self.config.navigators if n not in set(df[algorithm_column])
+        ]
+        if missing_navigators:
+            self.load_warnings.append(f"No runs for navigators: {', '.join(missing_navigators)}")
         df = df.dropna(axis=1, how="all")
         df["scenario"] = self.config.scenario
         rename_map: Dict[str, str] = {}
@@ -381,8 +402,6 @@ class BenchmarkReportBase(AnovaMixin, RliableMixin, PlottingMixin, TableExportMi
                 - df["group_personal_space_intrusions"]
                 - df["group_intimate_space_intrusions"]
             )
-        if {"social_work", "time_to_reach_goal"}.issubset(df.columns):
-            df["social_work_per_second"] = df["social_work"] / df["time_to_reach_goal"]
         if "result" not in df.columns:
             if "completed" in df.columns:
                 df["result"] = np.where(df["completed"], "Success", "Failure")

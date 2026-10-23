@@ -182,7 +182,7 @@ Additional supported outputs include:
 
 Statistical annotations on metric distribution plots can use pairwise brackets
 or baseline stars. Configure them with ``annotate_stats``, ``stat_test``,
-``stat_correction``, ``stat_alpha``, ``stat_use_anova``,
+``stat_correction``, ``stat_alpha``, ``stat_use_statistics``,
 ``stat_annotation_mode``, ``stat_baseline``, and ``stat_comparisons``.
 
 Output Layout

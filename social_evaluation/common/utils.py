@@ -52,7 +52,7 @@ def _interpolate_with_fallback(
 def time_goal_reached(
     df: pd.DataFrame,
     goal_position: Tuple[float, float],
-    threshold: float = 0.3,
+    threshold: float = 0.4,
 ) -> Union[float, None]:
     """Get the time when the robot first came within ``threshold`` of the goal
 

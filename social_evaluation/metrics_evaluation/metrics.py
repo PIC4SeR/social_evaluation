@@ -100,6 +100,7 @@ from social_evaluation.metrics_evaluation.sfm import (
     - social_force_on_robot: Compute the cumulative modulus of the social force provoked by the agents to the robot
     - social_work: Compute the cumulative social work employed in this planner
     - social_work_per_second: Compute the cumulative social work employed in this planner per second
+    - social_work_interaction: Compute the social work per second while a person is within interaction distance
     - obstacle_force_on_agents: Compute the cumulative modulus of the obstacle force provoked by the obstacles to the agents
     - obstacle_force_on_robot: Compute the cumulative modulus of the obstacle force provoked by the obstacles to the robot
 
@@ -143,7 +144,7 @@ def total_time(
     df_robot: pd.DataFrame,
     *args,
     goal: Tuple[float, float],
-    goal_tolerance: float = 0.3,
+    goal_tolerance: float = 0.4,
     **kwargs,
 ) -> float:
     """Compute the time until the robot first comes within ``goal_tolerance`` of
@@ -444,7 +445,7 @@ def goal_reached(
     df_robot: pd.DataFrame,
     *args,
     goal: Tuple[float, float],
-    goal_tolerance: float = 0.3,
+    goal_tolerance: float = 0.4,
     **kwargs,
 ) -> bool:
     """Check if the robot ended the run at the goal (SEAN 2.0): its final
@@ -834,6 +835,51 @@ def social_work_per_second(
     if not duration > 0:
         return 0, df_social_work
     return total / duration, df_social_work
+
+
+@metric("social_work_interaction")
+def social_work_interaction(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_obstacles: pd.DataFrame,
+    robot_radius: float = 0.3,
+    agent_radius: float = 0.3,
+    interaction_distance: float = 3.6,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Compute the social work per second of interaction: the per-sample social work averaged
+    over time only where a person's body is closer than ``interaction_distance`` to the robot's
+    (default: the social-space boundary, 3.6 m), so stretches with nobody around do not dilute
+    it as they do social_work_per_second. NaN when nobody comes that close: there is no
+    interaction to measure, and a fleet's value (the nanmean over its robots) then leaves that
+    robot out instead of counting it as 0.
+
+    :param df_agents_list: list of pandas DataFrames with the agents' data
+    :param df_robot: pandas DataFrame with the robot's data
+    :param df_obstacles: pandas DataFrame with the obstacles' data
+    :param robot_radius: float with the robot's radius
+    :param agent_radius: float with the agent's radius
+    :param interaction_distance: float with the body gap (m) under which the robot interacts
+    :return: float with the social work per second of interaction time (N), NaN without interaction
+    """
+    df_robot_ = df_robot.copy().dropna()
+    _, work = social_work(
+        df_agents_list=df_agents_list,
+        df_robot=df_robot_,
+        df_obstacles=df_obstacles,
+        robot_radius=robot_radius,
+    )
+    closest = distance_to_closest_person(df_agents_list, df_robot_, robot_radius, agent_radius)
+    work = pd.merge_asof(work.dropna().sort_values("time"), closest.sort_values("time"),
+                         on="time", direction="nearest")
+    work["interacting"] = work["min_distance"] < interaction_distance
+    dt = work["time"].diff().fillna(0.0)  # each sample stands for the interval before it
+    duration = dt[work["interacting"]].sum()
+    if not duration > 0:
+        return np.nan, work[["time", "social_work", "interacting"]]
+    weighted = (work["social_work"] * dt)[work["interacting"]].sum()
+    return float(weighted / duration), work[["time", "social_work", "interacting"]]
 
 
 @metric("obstacle_force_on_agents")

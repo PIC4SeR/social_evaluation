@@ -101,7 +101,7 @@ outputs:
       annotate_stats: true
       stat_annotation_mode: baseline_stars  # "brackets" or "baseline_stars"
       stat_baseline: 'SFM-NMPC'             # reference algorithm for stars
-      stat_use_anova: true
+      stat_use_statistics: true
       highlight_baseline: true               # bold legend label + "Ours" marker
       highlight_baseline_label: 'Ours'       # label shown above baseline box
       stat_alpha: 0.05
@@ -122,7 +122,7 @@ outputs:
       stat_baseline: 'SFM-NMPC'
       highlight_baseline: true
       highlight_baseline_label: 'Ours'
-      stat_use_anova: true
+      stat_use_statistics: true
       stat_alpha: 0.05
       stat_font_size: 30
       font_sizes:

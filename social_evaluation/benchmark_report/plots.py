@@ -33,6 +33,17 @@ except ImportError:  # pragma: no cover - optional dependency guard
     _Annotator = None  # type: ignore[assignment, misc]
 
 
+def _for_environment(df: Optional[pd.DataFrame], environment: str) -> Optional[pd.DataFrame]:
+    """Rows of the statistics results for one episode group (metric_key-indexed summary)."""
+    if df is None or df.empty:
+        return None
+    if "episode_group" in df.columns:
+        return df[df["episode_group"] == environment]
+    if environment not in df.index.get_level_values("episode_group"):
+        return None
+    return df.xs(environment, level="episode_group")
+
+
 class PlottingMixin:
     """Provide the high-level plotting helpers for benchmark reports."""
 
@@ -280,7 +291,7 @@ class PlottingMixin:
         stat_display_format: str = "star",
         stat_alpha: float = 0.05,
         stat_min_group_size: int = 2,
-        stat_use_anova: bool = True,
+        stat_use_statistics: bool = True,
         stat_font_size: Optional[int] = None,
         stat_line_height: float = 0.04,
         stat_annotation_mode: str = "brackets",
@@ -319,21 +330,21 @@ class PlottingMixin:
             subplot.  Default is ``False``.
         stat_test : str
             Statistical test to use with ``statannotations`` when
-            ``stat_use_anova`` is ``False``.  Common values:
+            ``stat_use_statistics`` is ``False``.  Common values:
             ``"t-test_ind"``, ``"Mann-Whitney"``, ``"Kruskal"``.
-            Ignored when ``stat_use_anova`` is ``True`` (the pre-
-            computed Tukey HSD adjusted p-values are used instead).
+            Ignored when ``stat_use_statistics`` is ``True`` (the post-hoc
+            p-values of the ``statistics`` config are used instead).
         stat_comparisons : list of tuple, optional
             Explicit list of ``(group_a, group_b)`` pairs to annotate.
             When ``None`` (default), all pairs with significant results
-            from the ANOVA/Tukey analysis are used (if
-            ``stat_use_anova`` is ``True``), or all possible pairs are
-            tested (if ``stat_use_anova`` is ``False``).
+            from the ``statistics`` post-hocs are used (if
+            ``stat_use_statistics`` is ``True``), or all possible pairs are
+            tested (if ``stat_use_statistics`` is ``False``).
         stat_correction : str or None
             Multiple-testing correction applied by ``statannotations``
-            when ``stat_use_anova`` is ``False``.
+            when ``stat_use_statistics`` is ``False``.
             Set to ``None`` to disable correction.  Ignored when
-            ``stat_use_anova`` is ``True``.
+            ``stat_use_statistics`` is ``True``.
         stat_display_format : str
             Annotation display format: ``"star"`` (default) for
             asterisks (``*``, ``**``, …) or ``"simple"`` for
@@ -344,9 +355,9 @@ class PlottingMixin:
             Minimum number of observations per algorithm group
             required to include a pair in the annotation.
             Default is ``2``.
-        stat_use_anova : bool
-            When ``True`` (default), use pre-computed ANOVA/Tukey HSD
-            results from ``analyze_algorithm_effects`` and annotate
+        stat_use_statistics : bool
+            When ``True`` (default), use the per-episode-group results of
+            ``analyze_algorithm_effects`` (``statistics`` config) and annotate
             with the adjusted p-values.  When ``False``, let
             ``statannotations`` run the test specified by
             ``stat_test`` directly.
@@ -398,25 +409,22 @@ class PlottingMixin:
             )
             for label in palette
         ]
-        # Pre-compute ANOVA/Tukey pairwise results when annotation is
-        # requested and `stat_use_anova` is True.
+        # Pre-compute the statistics (omnibus + post-hoc) when annotation is
+        # requested and `stat_use_statistics` is True.
         _pairwise_df: Optional[pd.DataFrame] = None
-        _anova_summary: Optional[pd.DataFrame] = None
-        if annotate_stats and stat_use_anova:
+        _stats_summary: Optional[pd.DataFrame] = None
+        if annotate_stats and stat_use_statistics:
             if not use_baseline_stars and _Annotator is None:
                 raise RuntimeError(
                     "statannotations is required for bracket annotations. "
                     "Install it with 'pip install statannotations'."
                 )
-            # `analyze_algorithm_effects` lives on the AnovaMixin which
-            # is mixed into the same concrete class.
-            _anova_summary, _pairwise_df = self.analyze_algorithm_effects(  # type: ignore[attr-defined]
+            # `analyze_algorithm_effects` lives on the StatsMixin (statistics
+            # config block); results are per episode group, sliced per panel.
+            _stats_summary, _pairwise_df = self.analyze_algorithm_effects(  # type: ignore[attr-defined]
                 alpha=stat_alpha, min_group_size=stat_min_group_size
             )
-            if _pairwise_df is not None and not _pairwise_df.empty:
-                _pairwise_df = _pairwise_df.reset_index()
-            else:
-                _pairwise_df = None
+            _pairwise_df = None if _pairwise_df.empty else _pairwise_df.reset_index()
         # Accumulate caption lines when using baseline_stars mode.
         _caption_lines: List[str] = []
         env_metrics_cache: Dict[str, Dict[str, pd.DataFrame]] = {}
@@ -430,18 +438,12 @@ class PlottingMixin:
                 )
             )
         for metric_key in all_metric_keys:
-            source = self.results_for_metric(metric_key)
-            cache: Dict[str, pd.DataFrame] = {}
-            for environment in self.ordered_experiments:
-                cache[environment] = source[source["experiment"] == environment].copy()
-            if self.config.episode_groups:
-                for group_name, members in self.config.episode_groups.items():
-                    if not members:
-                        continue
-                    cache[group_name] = source[
-                        source["experiment"].isin(members)
-                    ].copy()
-            env_metrics_cache[metric_key] = cache
+            env_metrics_cache[metric_key] = {
+                env: frame.copy()
+                for env, frame in self.environment_frames(  # type: ignore[attr-defined]
+                    self.results_for_metric(metric_key)
+                ).items()
+            }
 
         # Determine experiment order from any metric's cache
         first_cache = next(iter(env_metrics_cache.values()), {})
@@ -557,8 +559,8 @@ class PlottingMixin:
                                     y=metric_key,
                                     order=plot_order,
                                     baseline=stat_baseline or "",
-                                    pairwise_df=_pairwise_df,
-                                    anova_summary=_anova_summary,
+                                    pairwise_df=_for_environment(_pairwise_df, environment),
+                                    stats_summary=_for_environment(_stats_summary, environment),
                                     alpha=stat_alpha,
                                     font_size=(
                                         stat_font_size or fs.get("tick_label", 14)
@@ -581,10 +583,10 @@ class PlottingMixin:
                                     order=plot_order,
                                     kind=kind,
                                     palette=palette,
-                                    pairwise_df=_pairwise_df,
+                                    pairwise_df=_for_environment(_pairwise_df, environment),
                                     comparisons=stat_comparisons,
                                     stat_test=stat_test,
-                                    stat_use_anova=stat_use_anova,
+                                    stat_use_statistics=stat_use_statistics,
                                     correction=stat_correction,
                                     display_format=stat_display_format,
                                     alpha=stat_alpha,
@@ -884,7 +886,7 @@ class PlottingMixin:
         order: List[str],
         baseline: str,
         pairwise_df: Optional[pd.DataFrame],
-        anova_summary: Optional[pd.DataFrame],
+        stats_summary: Optional[pd.DataFrame],
         alpha: float,
         font_size: int,
         environment: str,
@@ -911,7 +913,7 @@ class PlottingMixin:
         xpos = {label: idx for idx, label in enumerate(plot_order)}
 
         # Collect (navigator, p-value, stars) for each comparison vs
-        # baseline from the Tukey pairwise results.
+        # baseline from the post-hoc results of this episode group.
         annotations: List[Tuple[str, float, str]] = []
 
         if pairwise_df is not None and not pairwise_df.empty:
@@ -977,25 +979,32 @@ class PlottingMixin:
         # --- Build caption text ---
         # ANOVA omnibus line (if available)
         caption_parts: List[str] = []
-        if anova_summary is not None and not anova_summary.empty:
-            if y in anova_summary.index:
-                row = anova_summary.loc[y]
-                test_name = str(row.get("test_type", "ANOVA")).replace("_", " ").title()
-                f_val = row.get("f_statistic", float("nan"))
-                p_omni = row.get("p_value", float("nan"))
-                df_b = row.get("df_between", "?")
-                df_w = row.get("df_within", "?")
+        if stats_summary is not None and not stats_summary.empty:
+            if y in stats_summary.index:
+                row = stats_summary.loc[y]
+                test_name = str(row.get("test", "anova")).title()
+                symbol, dof = (
+                    ("H", f"{row['df1']:g}")
+                    if row.get("test") in ("kruskal", "permutation")
+                    else ("F", f"{row['df1']:g},{row['df2']:.1f}")
+                )
                 caption_parts.append(
                     f"[{environment} | {y}] {test_name}: "
-                    f"F({df_b},{df_w})={f_val:.2f}, p={p_omni:.4f}."
+                    f"{symbol}({dof})={row['statistic']:.2f}, "
+                    f"p={row['p_value']:.4f}, p_adj={row['p_adjusted']:.4f}."
                 )
 
         # Pairwise details
         pair_strs: List[str] = []
         for nav, p_val, stars in annotations:
             pair_strs.append(f"{nav} vs {baseline}: p={p_val:.4f} ({stars})")
+        posthoc_name = (
+            str(pairwise_df["posthoc"].iloc[0])
+            if pairwise_df is not None and "posthoc" in pairwise_df
+            else "post-hoc"
+        )
         caption_parts.append(
-            f"  Pairwise (Tukey HSD, alpha={alpha}): " + "; ".join(pair_strs) + "."
+            f"  Pairwise ({posthoc_name}, alpha={alpha}): " + "; ".join(pair_strs) + "."
         )
         return " ".join(caption_parts)
 
@@ -1012,7 +1021,7 @@ class PlottingMixin:
         pairwise_df: Optional[pd.DataFrame],
         comparisons: Optional[List[Tuple[str, str]]],
         stat_test: str,
-        stat_use_anova: bool,
+        stat_use_statistics: bool,
         correction: Optional[str],
         display_format: str,
         alpha: float,
@@ -1022,9 +1031,9 @@ class PlottingMixin:
     ) -> None:
         """Add ``statannotations`` brackets to a single subplot.
 
-        When *stat_use_anova* is ``True`` the pre-computed Tukey HSD
-        adjusted p-values are injected directly into the annotator so
-        that the displayed significance matches the ANOVA analysis.
+        When *stat_use_statistics* is ``True`` the pre-computed post-hoc
+        adjusted p-values (``statistics`` config) are injected directly into
+        the annotator so the displayed significance matches the analysis.
         Otherwise ``statannotations`` runs *stat_test* on its own.
         """
 
@@ -1038,7 +1047,7 @@ class PlottingMixin:
             return
 
         # --- Build the list of pairs to annotate -----------------------
-        if stat_use_anova and pairwise_df is not None and not pairwise_df.empty:
+        if stat_use_statistics and pairwise_df is not None and not pairwise_df.empty:
             metric_rows = pairwise_df[pairwise_df["metric_key"] == y]
             if metric_rows.empty:
                 return
@@ -1048,7 +1057,7 @@ class PlottingMixin:
                     (a, b) for a, b in comparisons if a in present and b in present
                 ]
             else:
-                # Take all significant pairs from Tukey results
+                # Take all significant pairs from the post-hoc results
                 sig_rows = metric_rows[metric_rows["reject"] == True]  # noqa: E712
                 pairs = []
                 for _, row in sig_rows.iterrows():

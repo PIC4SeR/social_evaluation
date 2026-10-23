@@ -570,3 +570,107 @@ def fleet_avg_distance_to_closest_person(
     return _aggregate_over_robots(
         avg_closest_person, np.mean, df_agents_list, df_robots, **kwargs
     )
+
+
+# --------------------------------------------------------------------------- #
+# Fleet space intrusions (2026-10-21). The per-robot intimate_personal_space_intrusions
+# reaches a fleet as its WORST ROBOT's share of time (fleet_value's max), which misses
+# intrusions by different robots at different times. Two fleet-level versions:
+#   fleet_  : the share of time ANY robot has ANY person within the zone (the worst
+#             robot-person pair at every stamp) -- the fleet seen as one navigator;
+#   fleet_person_ : each person's share of time with a robot of the fleet in the zone,
+#             averaged over the people -- what the people live through.
+# --------------------------------------------------------------------------- #
+ALIGN_TOLERANCE = 0.2   # s: a robot's gap at a stamp is its nearest sample within this
+IP_ZONE = 1.2           # m body gap: intimate (< 0.45) + personal (0.45-1.2) zones together
+
+
+def robot_person_gaps(
+    df_agents_list: List[pd.DataFrame],
+    df_robots: Dict[str, pd.DataFrame],
+    **kwargs,
+) -> pd.DataFrame:
+    """Body gap (m) of every (robot, person) pair on one time base, column ``<robot>|<i>``
+    for person ``i``. Each robot is merged with the people as the per-robot metrics do
+    (combine_df_robot_agents) and measured with its own radius (``radius_for``); the
+    robots' series are aligned on the union of their stamps, each at its nearest sample
+    within ALIGN_TOLERANCE (NaN outside)."""
+    agent_radius = kwargs.get("agent_radius", 0.3)
+    frames = []
+    for name, df_robot in df_robots.items():
+        if df_robot.empty:
+            continue
+        both = combine_df_robot_agents(df_robot, df_agents_list)
+        radius = radius_for(name, kwargs)
+        gaps = {f"{name}|{i}": np.hypot(both["position_x"] - both[f"position_x_agent{i}"],
+                                        both["position_y"] - both[f"position_y_agent{i}"])
+                - radius - agent_radius
+                for i in range(len(df_agents_list))}
+        frame = pd.DataFrame({"time": both["time"].astype(float), **gaps})
+        frames.append(frame.sort_values("time", kind="stable"))
+    if not frames:
+        return pd.DataFrame()
+    base = pd.DataFrame({"time": np.unique(np.concatenate([f["time"].to_numpy() for f in frames]))})
+    for frame in frames:
+        base = pd.merge_asof(base, frame, on="time", direction="nearest",
+                             tolerance=ALIGN_TOLERANCE)
+    return base
+
+
+def _time_share(times: np.ndarray, inside: np.ndarray, valid: np.ndarray) -> float:
+    """Percentage of the valid time spent inside, each sample standing for the interval
+    before it (as social_work_interaction weighs its samples)."""
+    dt = np.diff(times, prepend=times[0]) if len(times) else times
+    total = dt[valid].sum()
+    return float(100.0 * dt[valid & inside].sum() / total) if total > 0 else np.nan
+
+
+@metric("fleet_intimate_personal_space_intrusions")
+def fleet_intimate_personal_space_intrusions(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Percentage of time ANY robot of the fleet has ANY person within 1.2 m (body gap:
+    intimate + personal zones), i.e. at every stamp the worst robot-person pair. Intrusions
+    by different robots at different times add up, unlike the per-robot metric's worst
+    robot."""
+    if not df_robots:
+        return _no_fleet_data("fleet_intimate_personal_space_intrusions")
+    gaps = robot_person_gaps(df_agents_list, df_robots, **kwargs)
+    if gaps.empty:
+        return np.nan, pd.DataFrame()
+    worst = gaps.drop(columns="time").min(axis=1, skipna=True)
+    inside = (worst < IP_ZONE).to_numpy()
+    series = pd.DataFrame({"time": gaps["time"], "fleet_min_gap": worst,
+                           "intrusion": inside.astype(float)})
+    return _time_share(gaps["time"].to_numpy(), inside, worst.notna().to_numpy()), series
+
+
+@metric("fleet_person_intimate_personal_space_intrusions")
+def fleet_person_intimate_personal_space_intrusions(
+    df_agents_list: List[pd.DataFrame],
+    df_robot: pd.DataFrame,
+    *args,
+    df_robots: Optional[Dict[str, pd.DataFrame]] = None,
+    **kwargs,
+) -> Tuple[float, pd.DataFrame]:
+    """Mean over the people of the percentage of time a robot of the fleet is within 1.2 m
+    of that person (body gap: intimate + personal zones): the exposure each person lives
+    through, so two people intruded on at once count twice."""
+    if not df_robots:
+        return _no_fleet_data("fleet_person_intimate_personal_space_intrusions")
+    gaps = robot_person_gaps(df_agents_list, df_robots, **kwargs)
+    if gaps.empty:
+        return np.nan, pd.DataFrame()
+    times = gaps["time"].to_numpy()
+    shares = {}
+    for i in range(len(df_agents_list)):
+        closest = gaps[[c for c in gaps.columns if c.endswith(f"|{i}")]].min(axis=1, skipna=True)
+        shares[f"person_{i}"] = _time_share(times, (closest < IP_ZONE).to_numpy(),
+                                            closest.notna().to_numpy())
+    values = np.array(list(shares.values()), dtype=float)
+    value = float(np.nanmean(values)) if values.size and not np.all(np.isnan(values)) else np.nan
+    return value, pd.DataFrame([shares])

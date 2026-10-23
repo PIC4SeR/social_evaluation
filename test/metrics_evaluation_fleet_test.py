@@ -226,3 +226,48 @@ def test_centroid_time_to_goal_is_the_first_arrival_within_tolerance():
     never, _ = centroid_time_to_goal([], robots["r1"], df_robots=robots, goal=(3.0, 4.0))
     assert np.isnan(never)
     assert np.isnan(centroid_time_to_goal([], robots["r1"], df_robots=robots, goal=None)[0])
+
+
+def _intrusion_metrics(robots, agents):
+    names = ["intimate_personal_space_intrusions", "fleet_intimate_personal_space_intrusions",
+             "fleet_person_intimate_personal_space_intrusions"]
+    results, _ = ME.evaluate_metrics(robots["tb_1"], pd.DataFrame({"time": [0.0]}), agents, pd.DataFrame(),
+                                     {}, (0.0, 0.0), CONFIG, names, df_robots=robots)
+    return [results[n] for n in names]
+
+
+def test_fleet_intrusions_add_up_robots_intruding_at_different_times():
+    """10 s: tb_1 next to person 0 for the first half, jk next to person 1 for the second.
+    Each robot intrudes half the time (worst robot 50 %), the fleet all the time (100 %),
+    each person half the time (50 %)."""
+    t = np.round(np.arange(0.0, 10.0 + 1e-9, 0.1), 3)
+    first = t < 5.0
+    robots = {"tb_1": _robot_df(np.where(first, 0.5, 50.0), np.zeros(t.size), t),
+              "jk": _robot_df(np.where(first, 50.0, 100.5), np.zeros(t.size), t)}
+    agents = [_agent_df(np.zeros(t.size), np.zeros(t.size), times=t),
+              _agent_df(np.full(t.size, 100.0), np.zeros(t.size), times=t)]
+    worst_robot, fleet, person = _intrusion_metrics(robots, agents)
+    assert worst_robot == pytest.approx(50.0, abs=1.5)
+    assert fleet == pytest.approx(100.0, abs=1.5)
+    assert person == pytest.approx(50.0, abs=1.5)
+
+
+def test_fleet_intrusions_count_one_person_crowded_by_two_robots_once():
+    """Both robots next to person 0 for the first half, person 1 never approached: the fleet
+    intrudes half the time, the people on average a quarter (person 0 half, person 1 never)."""
+    t = np.round(np.arange(0.0, 10.0 + 1e-9, 0.1), 3)
+    first = t < 5.0
+    robots = {"tb_1": _robot_df(np.where(first, 0.5, 50.0), np.zeros(t.size), t),
+              "jk": _robot_df(np.where(first, -0.6, -50.0), np.zeros(t.size), t)}
+    agents = [_agent_df(np.zeros(t.size), np.zeros(t.size), times=t),
+              _agent_df(np.full(t.size, 100.0), np.zeros(t.size), times=t)]
+    worst_robot, fleet, person = _intrusion_metrics(robots, agents)
+    assert worst_robot == pytest.approx(50.0, abs=1.5)
+    assert fleet == pytest.approx(50.0, abs=1.5)
+    assert person == pytest.approx(25.0, abs=1.5)
+
+
+def test_fleet_intrusions_need_fleet_data():
+    agents = [_agent_df(np.zeros(3), np.zeros(3))]
+    value, _ = ME.metrics_dict["fleet_intimate_personal_space_intrusions"](agents, _robot_df(np.zeros(3), np.zeros(3)))
+    assert np.isnan(value)

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 import re
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+
+import pandas as pd
 
 
 TEX_PREAMBLE = r"""\documentclass[11pt,a4paper]{article}
@@ -237,16 +238,6 @@ def _append_metric_group_plot_sections(
         lines.append("")
 
 
-def _format_float(value: Any, *, precision: int = 2, scientific: bool = False) -> str:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return "-"
-    if scientific:
-        return f"{number:.1e}"
-    return f"{number:.{precision}f}"
-
-
 def _latex_path(path: str) -> str:
     return path.replace("_", r"\_")
 
@@ -300,126 +291,73 @@ def _append_figure_series(
         lines.append("")
 
 
-def _load_anova_summary(summary_path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    with summary_path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for raw in reader:
-            if not raw:
-                continue
-            record: Dict[str, Any] = dict(raw)
-            record["metric_key"] = raw.get("metric_key", "")
-            record["metric_label"] = raw.get("metric_label", record["metric_key"])
-            record["f_statistic"] = raw.get("f_statistic")
-            record["p_value"] = raw.get("p_value")
-            record["df_between"] = raw.get("df_between")
-            record["df_within"] = raw.get("df_within")
-            record["sample_size"] = raw.get("sample_size")
-            record["test_type"] = raw.get("test_type", "")
-            record["significant"] = (
-                str(raw.get("significant", "False")).strip().lower() == "true"
-            )
-            record["heteroscedastic"] = (
-                str(raw.get("heteroscedastic", "False")).strip().lower() == "true"
-            )
-            rows.append(record)
-    return rows
+def _tex(text: Any) -> str:
+    """Make a label safe in a table cell: escape & % # (unless already escaped) and
+    turn the plot arrows into math."""
+    text = re.sub(r"(?<!\\)([&%#])", r"\\\1", str(text))
+    return text.replace("↑", r"$\uparrow$").replace("↓", r"$\downarrow$")
 
 
-def _render_anova_table(rows: List[Dict[str, Any]]) -> List[str]:
-    lines = [
-        r"\begin{table}[htbp]",
-        r"    \centering",
-        r"    \small",
-        r"    \begin{tabular}{llcccccc}",
-        r"        \toprule",
-        r"        \textbf{Metric} & \textbf{Test} & $\mathbf{F}$ & $\mathbf{p}$ & \textbf{DoF} & \textbf{N} & \textbf{Sig.} & \textbf{Hetero.} \\",
-        r"        \midrule",
-    ]
-    for row in rows:
-        metric_label = row.get("metric_label", row.get("metric_key", ""))
-        test_type = row.get("test_type", "")
-        test_label = test_type.replace("_", " ").title() if test_type else "-"
-        f_value = _format_float(row.get("f_statistic"), precision=2)
-        p_value = _format_float(row.get("p_value"), scientific=True)
-        try:
-            df_between = float(row.get("df_between"))
-            df_within = float(row.get("df_within"))
-            df_label = f"{df_between:.1f}/{df_within:.1f}"
-        except (TypeError, ValueError):
-            df_label = "-/-"
-        try:
-            sample_size = int(float(row.get("sample_size")))
-        except (TypeError, ValueError):
-            sample_size = 0
-        sig_label = "Yes" if row.get("significant") else "No"
-        hetero_label = "Yes" if row.get("heteroscedastic") else "No"
-        lines.append(
-            f"        {metric_label} & {test_label} & {f_value} & {p_value} & {df_label} & {sample_size} & {sig_label} & {hetero_label} \\\\"
-        )
-    lines.extend(
-        [
-            r"        \bottomrule",
-            r"    \end{tabular}",
-            r"    \caption{Summary of one-way ANOVA tests across navigation metrics.}",
-            r"    \label{tab:anova_summary}",
-            r"\end{table}",
-        ]
-    )
+def _p(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return "$<$0.001" if number < 0.001 else f"{number:.3f}"
+
+
+def _longtable(header: List[str], rows: List[List[str]], caption: str) -> List[str]:
+    spec = "l" * 2 + "c" * (len(header) - 2)
+    lines = [rf"\begin{{longtable}}{{{spec}}}", rf"\caption{{{caption}}}\\", r"\toprule",
+             " & ".join(rf"\textbf{{{h}}}" for h in header) + r" \\", r"\midrule", r"\endhead"]
+    lines += [" & ".join(row) + r" \\" for row in rows]
+    lines += [r"\bottomrule", r"\end{longtable}", ""]
     return lines
 
 
-def _append_anova_sections(
-    lines: List[str],
-    scenario_dir: Path,
-    anova_assets: Dict[str, Any],
-) -> None:
-    summary_rows: List[Dict[str, Any]] = anova_assets.get("summary_rows", [])
-    pairwise_csv: Optional[Path] = anova_assets.get("pairwise_csv")
-    plots: Dict[str, Path] = anova_assets.get("plots", {})
-    label_map = {
-        row.get("metric_key"): row.get("metric_label", row.get("metric_key"))
-        for row in summary_rows
-    }
-
-    if summary_rows:
-        lines.append(r"\section{ANOVA Summary}")
-        lines.append(
-            r"One-way ANOVA (Welch adjusted when heteroscedastic) highlights "
-            r"which metrics exhibit statistically different behaviour across "
-            r"navigators."
-        )
-        lines.extend(_render_anova_table(summary_rows))
-        lines.append("")
-
-    if plots:
-        lines.append(r"\section{Tukey Pairwise Analysis}")
-        description = (
-            r"Tukey HSD post-hoc tests identify significant algorithm pairs. "
-            r"The heatmaps display adjusted $p$-values."
-        )
-        if pairwise_csv:
-            rel_csv = _relative(pairwise_csv, scenario_dir)
-            description += (
-                r" Complete numeric results are provided in "
-                rf"\texttt{{{_latex_path(rel_csv)}}}."
-            )
-        lines.append(description)
-        lines.append("")
-        for metric_key, plot_path in sorted(plots.items()):
-            rel_plot = _relative(plot_path, scenario_dir)
-            metric_label = label_map.get(
-                metric_key, metric_key.replace("_", " ").title()
-            )
-            lines.append(r"\begin{figure}[htbp]")
-            lines.append(r"    \centering")
-            lines.append(rf"    \includegraphics[width=\textwidth]{{{rel_plot}}}")
-            lines.append(
-                rf"    \caption{{Pairwise Tukey HSD adjusted $p$-values for {metric_label}.}}"
-            )
-            lines.append(rf"    \label{{fig:{metric_key}_pairwise}}")
-            lines.append(r"\end{figure}")
-            lines.append("")
+def _append_stats_sections(lines: List[str], scenario_dir: Path, assets: Dict[str, Any]) -> None:
+    summary: pd.DataFrame = assets["summary"]
+    tested = summary["p_value"].notna()
+    significant = summary[summary["significant"].astype(str) == "True"]
+    tests = ", ".join(sorted(summary.loc[tested, "test"].dropna().unique()))
+    rel_dir = _latex_path(_relative(assets["dir"], scenario_dir))
+    lines.append(r"\section{Statistical tests}")
+    lines.append(
+        rf"{tests.title()} per episode group and metric; {int(tested.sum())} tests "
+        rf"({len(summary) - int(tested.sum())} not testable), $p$-values corrected across all of them. "
+        rf"{len(significant)} are significant; every test is in \texttt{{{rel_dir}/stats\_summary.csv}}."
+    )
+    lines.append("")
+    if not significant.empty:
+        rows = []
+        for r in significant.itertuples():
+            stat = (rf"$H({r.df1:g})={r.statistic:.2f}$" if r.test in ("kruskal", "permutation")
+                    else rf"$F({r.df1:g},{r.df2:.1f})={r.statistic:.2f}$")
+            rows.append([_tex(r.episode_group), _tex(r.metric_label), r.test, stat,
+                         _p(r.p_adjusted), rf"{r.effect_size:.2f} ({r.effect_name.replace('_', '')})"])
+        lines += _longtable(["Group", "Metric", "Test", "Statistic", "$p_{adj}$", "Effect"], rows,
+                            "Omnibus tests significant after correction.")
+    pairwise = assets.get("pairwise")
+    if pairwise is not None and not pairwise.empty:
+        listed = pairwise[pairwise["listed"].astype(str) == "True"]
+        rows = [[_tex(r.episode_group), _tex(r.metric_label), f"{r.group_a} vs {r.group_b}",
+                 f"{r.median_a:.2f} / {r.median_b:.2f}",
+                 _p(r.p_adjusted) + ("" if str(r.reject) == "True" else " (ns)")]
+                for r in listed.itertuples()]
+        if rows:
+            name = ", ".join(sorted(pairwise["posthoc"].unique()))
+            lines += _longtable(["Group", "Metric", "Pair", "Medians", "$p_{adj}$"], rows,
+                                rf"Post-hoc comparisons ({name}) where the omnibus test is significant.")
+    success = assets.get("success")
+    if success is not None and not success.empty:
+        rows = [[_tex(r.episode_group), f"{r.successes}/{r.n}", f"{r.chi2:.2f}", _p(r.p_value),
+                 _p(r.p_adjusted)] for r in success.itertuples()]
+        lines += _longtable(["Group", "Successes", r"$\chi^2$", "$p$ (perm.)", "$p_{adj}$"], rows,
+                            r"Permutation test of navigator $\times$ success per episode group.")
+    for plot_path in assets.get("plots", []):
+        rel_plot = _relative(plot_path, scenario_dir)
+        lines += [r"\begin{figure}[htbp]", r"    \centering",
+                  rf"    \includegraphics[width=0.8\textwidth]{{{rel_plot}}}", r"\end{figure}", ""]
 
 
 def _build_standard_document(scenario_dir: Path, assets: Dict[str, Any]) -> str:
@@ -470,9 +408,9 @@ def _build_standard_document(scenario_dir: Path, assets: Dict[str, Any]) -> str:
         lines.append(r"\end{figure}")
         lines.append("")
 
-    anova_assets = assets.get("anova")
-    if anova_assets:
-        _append_anova_sections(lines, scenario_dir, anova_assets)
+    stats_assets = assets.get("stats")
+    if stats_assets:
+        _append_stats_sections(lines, scenario_dir, stats_assets)
 
     lines.append(r"\end{document}")
     lines.append("")
@@ -572,9 +510,9 @@ def _build_weighted_document(
         lines.append(rf"\input{{{rel_path}}}")
         lines.append("")
 
-    anova_assets = assets.get("anova")
-    if anova_assets:
-        _append_anova_sections(lines, scenario_dir, anova_assets)
+    stats_assets = assets.get("stats")
+    if stats_assets:
+        _append_stats_sections(lines, scenario_dir, stats_assets)
 
     lines.append(r"\end{document}")
     lines.append("")
@@ -647,16 +585,16 @@ def _collect_assets(
         "proxemic_plot": proxemic_plot,
     }
 
-    anova_assets = _gather_anova_assets(tables, plots)
-    if anova_assets:
-        assets["anova"] = anova_assets
+    stats_assets = _gather_stats_assets(tables, plots)
+    if stats_assets:
+        assets["stats"] = stats_assets
 
     has_reportable_assets = any(
         [
             metric_groups,
             success_plot is not None,
             proxemic_plot is not None,
-            anova_assets is not None,
+            stats_assets is not None,
         ]
     )
     if not has_reportable_assets:
@@ -689,35 +627,23 @@ def _build_include_paths(scenario_dir: Path) -> Dict[str, Optional[Path]]:
     return resolved
 
 
-def _gather_anova_assets(
-    tables_dir: Path, plots_dir: Path
-) -> Optional[Dict[str, Any]]:
-    custom_stats = tables_dir / "custom_stats"
-    summary_csv = custom_stats / "anova_summary.csv"
-    pairwise_csv = custom_stats / "anova_pairwise.csv"
+def _gather_stats_assets(tables_dir: Path, plots_dir: Path) -> Optional[Dict[str, Any]]:
+    summary_csv = next(tables_dir.rglob("stats_summary.csv"), None)
+    if summary_csv is None:
+        return None
+    folder = summary_csv.parent
 
-    summary_rows: List[Dict[str, Any]] = []
-    if summary_csv.exists():
-        summary_rows = _load_anova_summary(summary_csv)
+    def read(name: str) -> Optional[pd.DataFrame]:
+        path = folder / name
+        return pd.read_csv(path) if path.exists() and path.stat().st_size > 1 else None
 
-    pairwise_path = pairwise_csv if pairwise_csv.exists() else None
-
-    plots_map: Dict[str, Path] = {}
-    anova_plot_dir = plots_dir / "anova"
-    if anova_plot_dir.exists():
-        for png_path in sorted(
-            anova_plot_dir.glob("*_pairwise_pvalues.png"), key=lambda path: path.name
-        ):
-            metric_key = png_path.stem.replace("_pairwise_pvalues", "")
-            plots_map[metric_key] = png_path
-
-    if summary_rows or pairwise_path or plots_map:
-        return {
-            "summary_rows": summary_rows,
-            "pairwise_csv": pairwise_path,
-            "plots": plots_map,
-        }
-    return None
+    return {
+        "dir": folder,
+        "summary": pd.read_csv(summary_csv),
+        "pairwise": read("stats_pairwise.csv"),
+        "success": read("stats_success.csv"),
+        "plots": sorted(plots_dir.rglob("*_pairwise_pvalues.png")),
+    }
 
 
 def generate_reports_for_scenario(

@@ -16,7 +16,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-from .anova import AnovaMixin
+from .stats import StatsMixin, StatsSettings
 from .config import BenchmarkConfig, format_intrusion_labels, format_metric_groups, resolve_path
 from .base import BenchmarkReportBase as BenchmarkReport
 from .plots import PlottingMixin
@@ -27,7 +27,8 @@ from .tex_reports import generate_reports_for_root, generate_reports_for_scenari
 __all__ = [
     "BenchmarkConfig",
     "BenchmarkReport",
-    "AnovaMixin",
+    "StatsMixin",
+    "StatsSettings",
     "TableExportMixin",
     "PlottingMixin",
     "RliableMixin",

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -14,6 +15,7 @@ import numpy as np
 from social_evaluation.benchmark_report import (
     BenchmarkConfig,
     BenchmarkReport,
+    StatsSettings,
     format_intrusion_labels,
     format_metric_groups,
     generate_reports_for_scenario,
@@ -137,8 +139,10 @@ def _parse_stat_annotation_kwargs(
         kwargs["stat_alpha"] = float(entry["stat_alpha"])
     if "stat_min_group_size" in entry:
         kwargs["stat_min_group_size"] = int(entry["stat_min_group_size"])
-    if "stat_use_anova" in entry:
-        kwargs["stat_use_anova"] = bool(entry["stat_use_anova"])
+    # stat_use_anova is the older name, kept for existing configs
+    for key in ("stat_use_anova", "stat_use_statistics"):
+        if key in entry:
+            kwargs["stat_use_statistics"] = bool(entry[key])
     if "stat_font_size" in entry:
         kwargs["stat_font_size"] = int(entry["stat_font_size"])
     if "stat_line_height" in entry:
@@ -152,6 +156,13 @@ def _parse_stat_annotation_kwargs(
     if "highlight_baseline_label" in entry:
         kwargs["highlight_baseline_label"] = str(entry["highlight_baseline_label"])
     return kwargs
+
+
+def _statistics_config(outputs_cfg: Mapping[str, Any]) -> Any:
+    """The ``statistics`` block; the older ``export_anova_analysis`` key means test: auto."""
+    if "statistics" in outputs_cfg:
+        return outputs_cfg["statistics"]
+    return outputs_cfg.get("export_anova_analysis")
 
 
 def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> None:
@@ -190,37 +201,13 @@ def _run_exports(report: BenchmarkReport, outputs_cfg: Mapping[str, Any]) -> Non
             weighted=weighted_tables,
         )
 
-    anova_cfg = outputs_cfg.get("export_anova_analysis")
-    if _is_enabled(anova_cfg, False):
-        metric_keys: Optional[Sequence[str]] = None
-        alpha = 0.05
-        min_group_size = 2
-        output_subdir: Optional[str] = None
-        if isinstance(anova_cfg, Mapping):
-            metric_keys = anova_cfg.get("metrics")
-            alpha = float(anova_cfg.get("alpha", alpha))
-            min_group_size = int(anova_cfg.get("min_group_size", min_group_size))
-            subdir_value = anova_cfg.get("output_subdir")
-            if subdir_value is not None:
-                output_subdir = str(subdir_value)
-        output_dir = None
-        if output_subdir:
-            output_dir = report.output_dir_tables() / output_subdir
-        _log("Exporting ANOVA/Tukey analysis")
-        try:
-            summary_df, pairwise_df = report.export_anova_analysis(
-                metric_keys=metric_keys,
-                alpha=alpha,
-                min_group_size=min_group_size,
-                output_dir=output_dir,
-            )
-        except RuntimeError as exc:
-            _log(f"Skipping ANOVA analysis: {exc}")
-        else:
-            if summary_df.empty:
-                _log("ANOVA summary produced no results (insufficient data).")
-            if pairwise_df.empty:
-                _log("No significant Tukey comparisons were found.")
+    stats_cfg = _statistics_config(outputs_cfg)
+    if _is_enabled(stats_cfg, False) and (
+        not isinstance(stats_cfg, Mapping) or stats_cfg.get("export", True)
+    ):
+        subdir = stats_cfg.get("output_subdir") if isinstance(stats_cfg, Mapping) else None
+        _log("Exporting statistics")
+        report.export_statistics(report.output_dir_tables() / subdir if subdir else None)
 
 
 def _run_plots(
@@ -276,161 +263,31 @@ def _run_plots(
             font_sizes_prox = _parse_font_sizes(proxemic_cfg)
         report.plot_proxemic_intrusions(rows=n_rows, font_sizes=font_sizes_prox)
 
-    heatmap_cfg = outputs_cfg.get("plot_pairwise_pvalue_heatmap")
-    if _is_enabled(heatmap_cfg, False):
-        metric_keys: Optional[Sequence[str]] = None
-        alpha = 0.05
-        min_group_size = 2
-        cmap = "mako"
-        annotate = True
-        fmt = ".3f"
-        label_size = 12
-        title_size = 14
-        colorbar_label_size = 12
-        annot_font_size = 9
-        output_subdir: Optional[str] = None
-        if isinstance(heatmap_cfg, Mapping):
-            metric_keys = heatmap_cfg.get("metrics")
-            alpha = float(heatmap_cfg.get("alpha", alpha))
-            min_group_size = int(heatmap_cfg.get("min_group_size", min_group_size))
-            cmap = str(heatmap_cfg.get("cmap", cmap))
-            annotate = bool(heatmap_cfg.get("annotate", annotate))
-            fmt = str(heatmap_cfg.get("fmt", fmt))
-            label_size = int(heatmap_cfg.get("label_size", label_size))
-            title_size = int(heatmap_cfg.get("title_size", title_size))
-            colorbar_label_size = int(
-                heatmap_cfg.get("colorbar_label_size", colorbar_label_size)
-            )
-            annot_font_size = int(heatmap_cfg.get("annot_font_size", annot_font_size))
-            if heatmap_cfg.get("output_subdir") is not None:
-                output_subdir = str(heatmap_cfg["output_subdir"])
-        output_dir = None
-        if output_subdir:
-            output_dir = report.output_dir_figures() / output_subdir
-        _log("Plotting pairwise p-value heatmaps")
+    heatmaps = (
+        ("plot_pairwise_pvalue_heatmap", "p_adjusted"),
+        ("plot_pairwise_mean_diff_heatmap", "mean_diff"),
+        ("plot_pairwise_hedges_heatmap", "hedges_g"),
+    )
+    style_keys = ("cmap", "annotate", "fmt", "label_size", "title_size",
+                  "colorbar_label_size", "annot_font_size")
+    for key, value in heatmaps:
+        heatmap_cfg = outputs_cfg.get(key)
+        if not _is_enabled(heatmap_cfg, False):
+            continue
+        heatmap_cfg = heatmap_cfg if isinstance(heatmap_cfg, Mapping) else {}
+        subdir = heatmap_cfg.get("output_subdir")
+        _log(f"Plotting pairwise {value} heatmaps")
         try:
-            saved_paths = report.plot_pairwise_pvalue_heatmaps(
-                metric_keys=metric_keys,
-                alpha=alpha,
-                min_group_size=min_group_size,
-                cmap=cmap,
-                annotate=annotate,
-                fmt=fmt,
-                label_size=label_size,
-                title_size=title_size,
-                colorbar_label_size=colorbar_label_size,
-                annot_font_size=annot_font_size,
-                output_dir=output_dir,
+            report.plot_pairwise_heatmaps(
+                value,
+                heatmap_cfg.get("metrics"),
+                output_dir=report.output_dir_figures() / subdir if subdir else None,
+                alpha=heatmap_cfg.get("alpha"),
+                min_group_size=heatmap_cfg.get("min_group_size"),
+                **{k: heatmap_cfg[k] for k in style_keys if k in heatmap_cfg},
             )
         except (RuntimeError, ValueError) as exc:
-            _log(f"Skipping pairwise p-value heatmaps: {exc}")
-        else:
-            if not saved_paths:
-                _log("No pairwise p-value heatmaps were generated.")
-
-    mean_diff_cfg = outputs_cfg.get("plot_pairwise_mean_diff_heatmap")
-    if _is_enabled(mean_diff_cfg, False):
-        metric_keys: Optional[Sequence[str]] = None
-        alpha = 0.05
-        min_group_size = 2
-        cmap = "coolwarm"
-        annotate = True
-        fmt = ".2f"
-        label_size = 12
-        title_size = 14
-        colorbar_label_size = 12
-        annot_font_size = 9
-        output_subdir: Optional[str] = None
-        if isinstance(mean_diff_cfg, Mapping):
-            metric_keys = mean_diff_cfg.get("metrics")
-            alpha = float(mean_diff_cfg.get("alpha", alpha))
-            min_group_size = int(mean_diff_cfg.get("min_group_size", min_group_size))
-            cmap = str(mean_diff_cfg.get("cmap", cmap))
-            annotate = bool(mean_diff_cfg.get("annotate", annotate))
-            fmt = str(mean_diff_cfg.get("fmt", fmt))
-            label_size = int(mean_diff_cfg.get("label_size", label_size))
-            title_size = int(mean_diff_cfg.get("title_size", title_size))
-            colorbar_label_size = int(
-                mean_diff_cfg.get("colorbar_label_size", colorbar_label_size)
-            )
-            annot_font_size = int(mean_diff_cfg.get("annot_font_size", annot_font_size))
-            if mean_diff_cfg.get("output_subdir") is not None:
-                output_subdir = str(mean_diff_cfg["output_subdir"])
-        output_dir = None
-        if output_subdir:
-            output_dir = report.output_dir_figures() / output_subdir
-        _log("Plotting pairwise mean difference heatmaps")
-        try:
-            saved_paths = report.plot_pairwise_mean_diff_heatmaps(
-                metric_keys=metric_keys,
-                alpha=alpha,
-                min_group_size=min_group_size,
-                cmap=cmap,
-                annotate=annotate,
-                fmt=fmt,
-                label_size=label_size,
-                title_size=title_size,
-                colorbar_label_size=colorbar_label_size,
-                annot_font_size=annot_font_size,
-                output_dir=output_dir,
-            )
-        except (RuntimeError, ValueError) as exc:
-            _log(f"Skipping mean difference heatmaps: {exc}")
-        else:
-            if not saved_paths:
-                _log("No mean difference heatmaps were generated.")
-
-    hedges_cfg = outputs_cfg.get("plot_pairwise_hedges_heatmap")
-    if _is_enabled(hedges_cfg, False):
-        metric_keys: Optional[Sequence[str]] = None
-        alpha = 0.05
-        min_group_size = 2
-        cmap = "coolwarm"
-        annotate = True
-        fmt = ".2f"
-        label_size = 12
-        title_size = 14
-        colorbar_label_size = 12
-        annot_font_size = 9
-        output_subdir: Optional[str] = None
-        if isinstance(hedges_cfg, Mapping):
-            metric_keys = hedges_cfg.get("metrics")
-            alpha = float(hedges_cfg.get("alpha", alpha))
-            min_group_size = int(hedges_cfg.get("min_group_size", min_group_size))
-            cmap = str(hedges_cfg.get("cmap", cmap))
-            annotate = bool(hedges_cfg.get("annotate", annotate))
-            fmt = str(hedges_cfg.get("fmt", fmt))
-            label_size = int(hedges_cfg.get("label_size", label_size))
-            title_size = int(hedges_cfg.get("title_size", title_size))
-            colorbar_label_size = int(
-                hedges_cfg.get("colorbar_label_size", colorbar_label_size)
-            )
-            annot_font_size = int(hedges_cfg.get("annot_font_size", annot_font_size))
-            if hedges_cfg.get("output_subdir") is not None:
-                output_subdir = str(hedges_cfg["output_subdir"])
-        output_dir = None
-        if output_subdir:
-            output_dir = report.output_dir_figures() / output_subdir
-        _log("Plotting pairwise Hedge's g heatmaps")
-        try:
-            saved_paths = report.plot_pairwise_hedges_heatmaps(
-                metric_keys=metric_keys,
-                alpha=alpha,
-                min_group_size=min_group_size,
-                cmap=cmap,
-                annotate=annotate,
-                fmt=fmt,
-                label_size=label_size,
-                title_size=title_size,
-                colorbar_label_size=colorbar_label_size,
-                annot_font_size=annot_font_size,
-                output_dir=output_dir,
-            )
-        except (RuntimeError, ValueError) as exc:
-            _log(f"Skipping Hedge's g heatmaps: {exc}")
-        else:
-            if not saved_paths:
-                _log("No Hedge's g heatmaps were generated.")
+            _log(f"Skipping {key}: {exc}")
 
     perf_cfg = outputs_cfg.get("plot_metric_performance_profiles")
     if _is_enabled(perf_cfg, False):
@@ -952,10 +809,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             config.output_dir.mkdir(parents=True, exist_ok=True)
         _log(f"Initialising benchmark report for scenario '{config.scenario}'")
         report = BenchmarkReport(config=config)
+        report.stats_settings = StatsSettings.from_config(_statistics_config(outputs_cfg))
         for message in getattr(report, "aggregate_metric_messages", []):
             _log(message)
         for warning in getattr(report, "aggregate_metric_warnings", []):
             _log(warning)
+        for warning in report.load_warnings:
+            _log(f"Warning: {warning}")
+        # Drop assets of earlier runs: the LaTeX drivers include whatever they find.
+        if _is_enabled(outputs_cfg.get("clean"), True):
+            for stale_dir in (report.output_dir_tables(), report.output_dir_figures()):
+                if stale_dir.is_dir():
+                    _log(f"Removing previous outputs in {stale_dir}")
+                    shutil.rmtree(stale_dir)
 
         _run_exports(report, outputs_cfg)
         _run_plots(report, outputs_cfg, base_dir)
