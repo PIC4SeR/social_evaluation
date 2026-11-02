@@ -317,54 +317,193 @@ statistics:
   enabled: true
   export: true            # false: configure the tests without writing the CSVs
   output_subdir: null     # CSV folder under tables/ (default: tables/stats)
-  test: auto              # auto | anova | welch | kruskal | permutation
-  posthoc: null           # tukey | tamhane | dunn | conover | mannwhitney | ttest
+  test: auto              # see "Omnibus tests" below
+  posthoc: null           # see "Post-hoc tests" below; default follows the test
   p_adjust: holm          # correction of the pairwise p-values (statsmodels name)
   correct_omnibus: holm   # correction across all omnibus tests; "none" to skip
   alpha: 0.05
   min_group_size: 2       # navigators with fewer runs are left out of a test
-  metrics: null           # default: every configured metric
+  metrics: null           # default: every configured metric (+ outcome metrics, below)
   pairs: null             # [[A, B], ...] pairs listed in the LaTeX post-hoc table
   permutations: 9999      # label shuffles for test: permutation
   success_test: true      # false, or {n_resamples: 9999, seed: 0}
   seed: 0
+  block: run              # column matching runs across navigators (repeated-measures tests)
+  cohort: null            # column the blocks are nested in (lmm / gee only)
+  transform: null         # log | log1p, applied to the values before testing
+  per_metric:             # overrides for single metrics
+    min_distance_to_people: {test: lmm, transform: log}
+    collision: {test: cochran}
+  per_group:              # overrides for single episodes / episode groups (display labels)
+    Perturbation SFM/ORCA:
+      test: friedman
+      per_metric:
+        collision: {test: cochran}
 ```
 
 Even when `enabled: false`, the settings in this block still apply to the
 plots and heatmaps that use the tests. Without the block, these defaults are
 used.
 
-**Procedure.** The tests are run for each pair of (episode or episode group,
-metric):
+`per_metric` accepts `test`, `posthoc`, `p_adjust`, `transform`, `block`,
+`cohort` and `min_group_size`. It only overrides settings; a metric is tested
+only if it is in `metrics` (or, without `metrics`, in `metric_groups`).
+
+`per_group` takes the same keys, plus a nested `per_metric`, for one episode or
+episode group. Keys are display labels: the `episode_group` column of
+`stats_summary.csv`, i.e. the `episode_names` labels and the `episode_groups`
+names. A key that matches none is logged as a warning. This is how one scenario
+mixes designs, for example paired tests for the groups with random pedestrian
+models and independent tests for the rest
+(see [Repeated measures by harness](#repeated-measures-by-harness)).
+
+Each (episode group, metric) cell applies the overrides in this order, the most
+specific last:
+
+1. the block's own settings;
+2. `per_group[group]`;
+3. `per_metric[metric]`;
+4. `per_group[group].per_metric[metric]`.
+
+A metric's data type (binary, ordinal) constrains its test more than the group
+does, so `per_metric` comes after `per_group`. The nested entry settles any
+conflict.
+
+#### Omnibus tests
+
+Independent samples, where every run is its own observation:
+
+| `test` | Test | Statistic, effect size | Default post-hoc |
+| --- | --- | --- | --- |
+| `auto` | a median-centred Levene test picks `welch` (p ≤ `alpha`) or `anova` | – | – |
+| `anova` | one-way ANOVA | F, η² | `tukey` |
+| `welch` | Welch's ANOVA | F, η² | `tamhane` |
+| `kruskal` | Kruskal–Wallis | H, η²_H = (H − k + 1)/(n − k) | `dunn` |
+| `permutation` | Kruskal–Wallis H, p-value from shuffling navigator labels; for few runs (about 5) per navigator, where the χ² approximation is poor | H, η²_H | `dunn` |
+
+Repeated measures, matching runs through the `block` column (see
+[Repeated measures](#repeated-measures)):
+
+| `test` | Test | For | Statistic, effect size | Default post-hoc |
+| --- | --- | --- | --- | --- |
+| `friedman` | Friedman (Wilcoxon signed-rank with 2 navigators) | continuous, skewed, ordinal/Likert | χ², Kendall's W | `wilcoxon` |
+| `cochran` | Cochran's Q (exact McNemar with 2 navigators) | binary 0/1 (E-stop, freeze, collision) | Q | `mcnemar` |
+| `lmm` | linear mixed model, random intercept per block (nested in `cohort` when set); Wald χ² test of the navigator terms | continuous, near-normal residuals (use `transform: log` for skewed metrics such as jerk) | Wald χ² | `emm` |
+| `gee_binomial` | GEE, binomial/logit, exchangeable correlation within block (or cohort) | binary 0/1 | Wald χ² | `emm` |
+| `gee_poisson` | GEE, Poisson/log, exchangeable correlation | counts (near-misses) | Wald χ² | `emm` |
+
+When an episode group pools several episodes, the models add the episode as a
+fixed effect (`value ~ navigator + episode`).
+
+The GLMMs in the test-selection guide (binomial and Poisson with random
+effects) are replaced here by `gee_binomial` and `gee_poisson`, because
+statsmodels has no frequentist GLMM. GEE estimates the population-averaged
+navigator effect with cluster-robust standard errors instead of a
+subject-specific one; the tests answer the same question. Ordinal mixed
+models (CLMM) and zero-inflated models are not available in Python; use
+`friedman`, the guide's alternative for Likert scores and zero-heavy metrics.
+
+#### Post-hoc tests
+
+Post-hocs run only where the corrected omnibus p ≤ `alpha`.
+
+| `posthoc` | Test | Correction |
+| --- | --- | --- |
+| `tukey`, `tamhane` | Tukey HSD, Tamhane T2 | built in |
+| `dunn`, `conover`, `mannwhitney`, `ttest` | independent-sample pairwise tests (scikit-posthocs) | `p_adjust` |
+| `wilcoxon` | paired Wilcoxon signed-rank on complete blocks | `p_adjust` |
+| `mcnemar` | exact McNemar on complete blocks, 0/1 values only | `p_adjust` |
+| `emm` | contrasts of the model's estimated marginal means (link scale), `lmm` / `gee_*` only | Tukey (studentized range) |
+
+Each pair also gets the mean difference (a − b), Hedges' g and both medians.
+These are computed on the metric's own scale, not on the transformed one.
+
+#### Repeated measures
+
+`block` names the column that says which runs of different navigators belong
+together:
+
+- in simulation, `run` (the default), when run *i* of every navigator in an
+  episode uses the same seed and pedestrians;
+- in real experiments, a subject or trial id column of the metrics files, for
+  example `block: participant_id`, plus `cohort: session_id` when subjects come in
+  groups whose members influence each other (the 2–3 person clusters).
+
+Blocks are matched per episode (`<episode>/<block>`), so the same run id in two
+pooled episodes counts as two blocks. `friedman` and `cochran` keep only
+**complete** blocks (a run of every tested navigator) and report how many in
+the `blocks` column. Several runs of one navigator in a block are averaged for
+`friedman`/`wilcoxon` but rejected for the binary tests. `lmm` and `gee_*` use
+every run. If a model fails to converge, its row gets a `note`.
+
+#### Repeated measures by harness
+
+**Gazebo (gazebo_test).** HuNav draws the pedestrian motion models once per
+episode reset. With `motion_model_strategy: random` and a fixed
+`motion_model_seed`, the k-th reset of every launch with that seed draws the same
+models. gazebo_test records each run's draw in its outcome row, and
+`metrics_evaluation --outcomes` carries it onto the metrics as `ped_draw`
+(`s<seed>_e<index>`) and `ped_models` (`agent1:sfm;agent2:orca`).
+
+| Campaign | Setting |
+| --- | --- |
+| random pedestrian models, recorded draws | `block: ped_draw`: pairs runs on the draw they actually got, even if a retry shifted the sequence |
+| random models, runs before the draws were recorded (mm, ml, so, nso) | `block: run`. Their `runs/mm_logs` show identical draws for every cost, chunk by chunk |
+| same models, any seed | `block: ped_models`: pairs runs that faced the same pedestrian condition |
+| SFM-only or ORCA-only pedestrians (cl, ncl, oc, noc, ab, nab, nsd) | independent tests (`auto`, `kruskal`, `permutation`). Spawn poses are fixed per episode and nothing else is shared between runs, so run blocks pair unrelated repetitions: valid, but they cost power, and an `lmm` puts their variance at the boundary |
+
+In the RAL campaigns the paired blocks are strongly correlated for distances to
+people (rank correlation +0.5 to +0.8 in the nso groups, about 0 in ncl and noc).
+Path length is driven by the robot and shares little across navigators.
+
+**Real experiments (real_test).**
+
+- Run-level metrics: `cohort: session_id` with `test: lmm` (or `gee_*`).
+  `--session-id` stamps every outcome row. Run *k* of two algorithms is not the
+  same trial (different launches, same people), so do not block on `run`; use
+  `block: session_id` for Friedman.
+- Survey answers: the `metrics_evaluation --survey-output-dir` tables (one row
+  per participant response) as a separate `root_dir`, with
+  `block: participant_id`, `cohort: session_id` and `success_test: false`.
+  The rows are per participant, so the success-rate test would count each run
+  several times. Friedman averages a participant's repetitions per algorithm;
+  `lmm` nests participants in sessions.
+- `participant_id` is the participant's stable code. Responses collected
+  before 2026-10-23 used an arrival order (P1 = first to answer) and cannot be
+  used as a block.
+
+#### Outcome metrics
+
+`success`, `timeout`, `collision` and `navigation_failure` can be listed in
+`metrics` as 0/1 metrics, built from the `result` column over **all** runs
+(failed-run filtering does not apply). For example
+`per_metric: {collision: {test: cochran}}` tests whether navigators differ in
+collision rate on the same trials.
+
+#### Procedure and files
+
+For each pair of (episode or episode group, metric):
 
 1. Keep the navigators that have at least `min_group_size` valid runs. If fewer
-   than two remain, the cell is marked untestable and a `note` is recorded.
-2. Run the **omnibus test**:
-   - `auto`: a median-centred Levene test chooses `welch` (p ≤ `alpha`, unequal
-     variances) or `anova`;
-   - `anova` / `welch`: one-way F-test; effect size η²;
-   - `kruskal`: Kruskal–Wallis; effect size η²_H = (H − k + 1)/(n − k);
-   - `permutation`: Kruskal–Wallis H with its p-value from shuffling the
-     navigator labels. Use this when each navigator has few runs (about 5),
-     because the χ² approximation is unreliable there.
+   than two remain, or the data do not fit the test (missing block column, non
+   0/1 values for a binary test, `log` of non-positive values, fewer than two
+   complete blocks), the cell is marked untestable and the reason goes in `note`.
+2. Run the omnibus test.
 3. Correct the omnibus p-values across **all** tested cells (`correct_omnibus`).
-4. Run the **post-hoc** test only where the corrected omnibus p ≤ `alpha`.
-   The default post-hoc depends on the omnibus test: anova → Tukey, welch →
-   Tamhane, kruskal/permutation → Dunn. Tukey and Tamhane are adjusted by
-   construction; the others use `p_adjust`. Each pair also gets the mean
-   difference (a − b), Hedges' g, and both medians.
+4. Run the post-hoc where the corrected omnibus p ≤ `alpha`.
 5. **Success-rate test** (per episode/group): permutation χ² test of
    independence between navigator and success, with p-values corrected
-   with `correct_omnibus`.
+   with `correct_omnibus`. This test is independent-sample; for a paired
+   version, list `success` in `metrics` with `test: cochran`.
 
 Files written to `tables/stats/`:
 
 | File | Content |
 | --- | --- |
-| `stats_summary.csv` | One row per (episode_group, metric): test, statistic, df1, df2, p_value, p_adjusted, effect_size, effect_name, n, k, significant, note. |
+| `stats_summary.csv` | One row per (episode_group, metric): test, statistic, df1, df2, p_value, p_adjusted, effect_size, effect_name, n, k, blocks, transform, significant, note. |
 | `stats_pairwise.csv` | One row per pair compared post hoc: posthoc, p_adjusted, reject, mean_diff, hedges_g, median_a, median_b, and `listed` (whether the pair appears in the LaTeX table: the configured `pairs`, otherwise the significant pairs). |
 | `stats_success.csv` | Per episode/group: n, successes, chi2, p_value, p_adjusted. |
-| `stats_runs.csv` | The run-level data that was tested, for re-analysis. |
+| `stats_runs.csv` | The run-level data that was tested (with the block and cohort columns), for re-analysis. |
 
 ### Plots
 
@@ -423,9 +562,9 @@ Annotation modes:
 
 With `stat_use_statistics: true` (the default), the stars and brackets come
 from the [statistics](#statistics) block, whatever its configuration: the omnibus
-test set by `statistics.test` (`auto`, `anova`, `welch`, `kruskal` or
-`permutation`), then the matching post-hoc (Tukey, Tamhane, Dunn, or
-`statistics.posthoc`). Only pairs in cells where the corrected omnibus test is
+test set by `statistics.test` or `per_metric` (any of the
+[omnibus tests](#omnibus-tests), including `friedman`, `cochran`, `lmm` and
+`gee_*`), then its post-hoc. Only pairs in cells where the corrected omnibus test is
 significant get a star or bracket, and the post-hoc's adjusted p-value is the
 one shown. `stat_alpha` and `stat_min_group_size` take precedence over the
 block's `alpha` and `min_group_size`. With `false`,

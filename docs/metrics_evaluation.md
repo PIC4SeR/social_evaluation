@@ -110,3 +110,48 @@ metrics_evaluation \
 The command loads already extracted data from `--data-file`, evaluates the
 metrics listed in `--metrics-file`, and writes the metrics dataframe to
 `--output-file`.
+
+## Outcomes, pairing columns and surveys
+
+`--outcomes <dir or csv>` merges the harness's `*_outcomes.csv` files onto the
+metrics, matching rows on (episode tag, algorithm, run). It adds:
+
+- `result`: the run outcome (`Success`, `Failure: Timeout`, ...).
+- `survey_<field>`: the mean answer over the participants of the run, for each
+  Likert field in `survey_fields`. The default fields are the real_test_survey
+  questions: `safety`, `friendliness`, `naturalness`, `avoidance_foresight`,
+  `legibility`, `overall`.
+- The `outcome_columns` that exist in the files, copied as they are. These are
+  the identifiers repeated-measures tests pair runs by (benchmark_report
+  `statistics.block` / `cohort`):
+
+| Column | Written by | Meaning |
+| --- | --- | --- |
+| `session_id` | real_test (`--session-id`) | the session's group of participants |
+| `ped_seed` | gazebo_test | HuNav `motion_model_seed` (-1: not seeded) |
+| `ped_draw_index` | gazebo_test | HuNav episode index (resets in the launch) |
+| `ped_draw` | gazebo_test | `s<seed>_e<index>`: the same pedestrian draw in every launch with that seed |
+| `ped_models` | gazebo_test | `agent1:sfm;agent2:orca`: the drawn motion models themselves |
+
+Both lists can be overridden in the metrics YAML:
+
+```yaml
+survey_fields: [safety, overall]
+outcome_columns: [session_id, ped_draw]
+```
+
+`--survey-output-dir <dir>` (with `--outcomes`) also writes, for every input, a
+table with **one row per participant response**: experiment, algorithm, run,
+result, session_id, participant_id and `survey_<field>`. Each table goes to the
+same relative path under `<dir>` as its metrics pickle. Use `<dir>` as its own
+benchmark_report `root_dir`, with `block: participant_id` and
+`cohort: session_id`. Keep it apart from the metrics, because the loader reads
+every file under its root, and mixing the two would count every run once per
+response.
+
+```bash
+metrics_evaluation \
+  --config-file config/config.yaml --metrics-file config/metrics.yaml \
+  --base-path filtered --outcomes results/real_test \
+  --base-output-dir metrics --survey-output-dir survey
+```
