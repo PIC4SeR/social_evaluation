@@ -39,6 +39,9 @@ The package is divided into different parts:
 ### Bag extraction and data conversion
 
 - [Bag extraction](docs/bag_extraction.md)
+- `pickle_to_csv --pickle-file X.pickle | --base-path DIR [--output-dir OUT]`: converts
+  extracted/filtered data and metric pickles to CSV (a DataFrame → `X.csv`; extracted data →
+  `X/<algorithm>/run_<k>/{odometry,agents,...}.csv` + `values.yaml` for goal and map metadata)
 
 ### Filtering of the data
 

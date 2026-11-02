@@ -271,3 +271,41 @@ def test_fleet_intrusions_need_fleet_data():
     agents = [_agent_df(np.zeros(3), np.zeros(3))]
     value, _ = ME.metrics_dict["fleet_intimate_personal_space_intrusions"](agents, _robot_df(np.zeros(3), np.zeros(3)))
     assert np.isnan(value)
+
+
+def _outcomes_dir(tmp_path):
+    """Two runs of one algorithm, with the pairing columns and survey responses."""
+    import json
+    responses = [
+        [{"participant_id": "P01", "session_id": "S01", "safety": "4", "overall": "5"},
+         {"participant_id": "P02", "session_id": "S01", "safety": "2", "overall": "3"}],
+        [{"participant_id": "P01", "session_id": "S01", "safety": "5", "overall": "x"}],
+    ]
+    table = pd.DataFrame({
+        "experiment_tag": ["crossing1", "crossing1"], "run_id": [1, 2],
+        "result": ["Success", "Failure: Timeout"], "session_id": ["S01", "S01"],
+        "ped_draw": ["s11_e1", "s11_e2"], "unrelated": [7, 8],
+        "survey_responses": [json.dumps(r) for r in responses]})
+    (tmp_path / "algo").mkdir()
+    table.to_csv(tmp_path / "algo" / "algo_outcomes.csv", index=False)
+    return tmp_path
+
+
+def test_outcomes_carry_the_pairing_columns(tmp_path):
+    outcomes = ME.load_outcomes(_outcomes_dir(tmp_path)).set_index("run")
+    assert outcomes.loc[1, "session_id"] == "S01" and outcomes.loc[2, "ped_draw"] == "s11_e2"
+    assert "unrelated" not in outcomes and "ped_models" not in outcomes   # listed and present only
+    assert outcomes.loc[1, "survey_safety"] == 3.0                         # per-run mean kept
+
+
+def test_survey_responses_become_one_row_per_participant(tmp_path):
+    survey = ME.load_survey_responses(_outcomes_dir(tmp_path))
+    assert list(zip(survey["run"], survey["participant_id"])) == [(1, "P01"), (1, "P02"), (2, "P01")]
+    assert list(survey["survey_safety"]) == [4, 2, 5]
+    assert np.isnan(survey["survey_overall"].iloc[2])                      # non-numeric answer
+    results = pd.DataFrame({"experiment": ["crossing1/crossing1"] * 2, "algorithm": ["algo"] * 2,
+                            "run": [1, 2], "path_length": [3.0, 4.0]})
+    expanded = ME.expand_survey(results, survey)
+    assert set(expanded["experiment"]) == {"crossing1/crossing1"}
+    assert "path_length" not in expanded and len(expanded) == 3
+    assert ME.expand_survey(results.iloc[0:0], survey).empty

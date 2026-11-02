@@ -15,6 +15,7 @@ os.environ.setdefault(
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -92,7 +93,7 @@ class BenchmarkReportBase(StatsMixin, RliableMixin, PlottingMixin, TableExportMi
         self.available_navigators = [
             navigator for navigator in self.ordered_navigators if navigator in available
         ]
-        self.navigator_palette = self.get_navigator_palette()
+        self.navigator_palette = self.get_navigator_palette(self.config.navigator_cmap)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -513,7 +514,12 @@ class BenchmarkReportBase(StatsMixin, RliableMixin, PlottingMixin, TableExportMi
         self, cmap_name: str = "Paired"
     ) -> Dict[str, Tuple[float, float, float, float]]:
         cmap = plt.get_cmap(cmap_name, len(self.ordered_navigators))
-        return {label: cmap(i) for i, label in enumerate(self.ordered_navigators)}
+        palette = {label: cmap(i) for i, label in enumerate(self.ordered_navigators)}
+        for name, color in self.config.navigator_colors.items():
+            label = self.config.navigator_names.get(name, name)
+            if label in palette:
+                palette[label] = mcolors.to_rgba(color)
+        return palette
 
     def get_result_palette(self) -> Dict[str, Tuple[float, float, float, float]]:
         cmap = plt.get_cmap(self.config.quality_result_cmap)

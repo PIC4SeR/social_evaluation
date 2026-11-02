@@ -231,14 +231,22 @@ def _run_plots(
             if not isinstance(entry, Mapping):
                 continue
             kind = str(entry.get("kind", "box"))
-            cmap_name = str(entry.get("cmap_name", "Paired"))
+            cmap_name = entry.get("cmap_name")  # None: benchmark navigator_cmap
             n_rows = int(entry.get("n_rows", 0))
             n_cols = int(entry.get("n_cols", 0))
             show_episode_ylabel = bool(entry.get("show_episode_ylabel", True))
             connect_medians = bool(entry.get("connect_medians", False))
+            # true/false for every metric, or {metric_key: true/false}
+            showfliers = entry.get("showfliers", False)
+            if not isinstance(showfliers, Mapping):
+                showfliers = bool(showfliers)
+            swarm = _is_enabled(entry.get("swarm"), False)
+            swarm_cfg = entry.get("swarm") if isinstance(entry.get("swarm"), Mapping) else {}
+            bar_cfg = entry.get("bar") if isinstance(entry.get("bar"), Mapping) else {}
+            bar_errorbar = bar_cfg.get("errorbar", "sd")
             font_sizes = _parse_font_sizes(entry)
             stat_kwargs = _parse_stat_annotation_kwargs(entry)
-            _log(f"Plotting metric distributions ({kind})")
+            _log(f"Plotting metric distributions ({kind}{' + swarm' if swarm else ''})")
             report.plot_metric_distributions(
                 kind=kind,
                 cmap_name=cmap_name,
@@ -247,11 +255,30 @@ def _run_plots(
                 font_sizes=font_sizes,
                 show_episode_ylabel=show_episode_ylabel,
                 connect_medians=connect_medians,
+                showfliers=showfliers,
+                swarm=swarm,
+                swarm_size=float(swarm_cfg.get("size", 12.0)),
+                swarm_color=str(swarm_cfg.get("color", "black")),
+                swarm_alpha=float(swarm_cfg.get("alpha", 0.8)),
+                episode_cols=int(entry.get("episode_cols", 1)),
+                panel_title=str(entry.get("panel_title", "metric")),
+                bar_estimator=str(bar_cfg.get("estimator", "mean")),
+                bar_errorbar=(
+                    None
+                    if bar_errorbar in (None, False, "none")
+                    else str(bar_errorbar)
+                ),
+                bar_errorbar_level=(
+                    float(bar_cfg["level"]) if "level" in bar_cfg else None
+                ),
+                bar_capsize=float(bar_cfg.get("capsize", 0.2)),
+                ylim=entry.get("ylim"),
+                sharey=entry.get("sharey"),
                 **stat_kwargs,
             )
     elif _is_enabled(distributions_cfg, False):
         _log("Plotting metric distributions (box)")
-        report.plot_metric_distributions(kind="box", cmap_name="Paired")
+        report.plot_metric_distributions(kind="box")
 
     proxemic_cfg = outputs_cfg.get("plot_proxemic_intrusions")
     if _is_enabled(proxemic_cfg, False):
@@ -444,6 +471,44 @@ def _generate_tex_reports(
         _log(f"Skipping LaTeX reports for '{report.config.scenario}': {exc}")
 
 
+def _parse_navigator_entries(
+    value: Any,
+) -> Tuple[List[str], Dict[str, str], Dict[str, str]]:
+    """Split ``navigators`` into ids, display names and colours.
+
+    Entries are plain ids or one-key mappings with optional ``name`` and
+    ``color`` (``- DWA: {name: 'DWA', color: '#c6dbef'}``); a mapping of
+    id -> attributes works too.
+    """
+
+    if isinstance(value, (str, bytes)):
+        return [str(value)], {}, {}
+    items = value.items() if isinstance(value, Mapping) else None
+    if items is None:
+        items = []
+        for entry in value:
+            if isinstance(entry, Mapping):
+                items.extend(entry.items())
+            else:
+                items.append((entry, None))
+    ids: List[str] = []
+    names: Dict[str, str] = {}
+    colors: Dict[str, str] = {}
+    for key, attrs in items:
+        key = str(key)
+        ids.append(key)
+        if isinstance(attrs, Mapping):
+            if attrs.get("name") is not None:
+                names[key] = str(attrs["name"])
+            if attrs.get("color") is not None:
+                colors[key] = str(attrs["color"])
+        elif attrs is not None:
+            raise ValueError(
+                f"Navigator '{key}' must map to {{name, color}}, got {attrs!r}"
+            )
+    return ids, names, colors
+
+
 def _build_benchmark_config(
     benchmark_cfg: Mapping[str, Any],
     base: Path,
@@ -454,7 +519,6 @@ def _build_benchmark_config(
     required_keys = [
         "root_dir",
         "navigators",
-        "navigator_names",
         "metric_groups",
         "intrusion_labels",
     ]
@@ -533,14 +597,11 @@ def _build_benchmark_config(
         raise ValueError(
             f"Missing navigators configuration for scenario '{scenario_name}'"
         )
-    if isinstance(navigators_value, (str, bytes)):
-        navigators = [str(navigators_value)]
-    else:
-        if not isinstance(navigators_value, Iterable):
-            raise ValueError(
-                f"Navigators for scenario '{scenario_name}' must be iterable"
-            )
-        navigators = [str(item) for item in navigators_value]
+    if not isinstance(navigators_value, (str, bytes, Iterable)):
+        raise ValueError(
+            f"Navigators for scenario '{scenario_name}' must be iterable"
+        )
+    navigators, entry_names, entry_colors = _parse_navigator_entries(navigators_value)
     if not navigators:
         raise ValueError(
             f"Scenario '{scenario_name}' must specify at least one navigator"
@@ -593,7 +654,8 @@ def _build_benchmark_config(
     for episode in episodes:
         _ensure_episode_entry(episode)
 
-    navigator_names_cfg = dict(benchmark_cfg.get("navigator_names", {}))
+    # Per-navigator entries take precedence over the separate blocks.
+    navigator_names_cfg = {**(benchmark_cfg.get("navigator_names") or {}), **entry_names}
     scenario_navigator_names: Dict[str, str] = {}
     missing_navigator_labels: List[str] = []
     for navigator in navigators:
@@ -729,6 +791,14 @@ def _build_benchmark_config(
         use_tex=bool(benchmark_cfg.get("use_tex", True)),
         discard_failed_metrics=discard_failed_metrics,
         quality_result_cmap=str(benchmark_cfg.get("intrusion_cmap", "Paired")),
+        navigator_cmap=str(benchmark_cfg.get("navigator_cmap", "Paired")),
+        navigator_colors={
+            **{
+                str(k): str(v)
+                for k, v in (benchmark_cfg.get("navigator_colors") or {}).items()
+            },
+            **entry_colors,
+        },
         metric_discard_failed={**discard_overrides, **intrusion_discard_overrides},
         metric_group_aggregates=metric_group_aggregates,
         metric_group_plot_metrics=metric_group_plot_metrics,
@@ -801,6 +871,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "Ensure each scenario has a unique name."
         )
 
+    stats_settings = StatsSettings.from_config(_statistics_config(outputs_cfg))
+    labels = {label for config in configs
+              for label in (*config.episode_names.values(), *config.episode_groups)}
+    for group in stats_settings.per_group:
+        if group not in labels:
+            _log(f"Warning: statistics.per_group '{group}' matches no episode or episode group "
+                 "(keys are display labels)")
+
     for config in configs:
         if not config.root_dir.exists():
             _log(f"Warning: metrics root directory does not exist: {config.root_dir}")
@@ -809,7 +887,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             config.output_dir.mkdir(parents=True, exist_ok=True)
         _log(f"Initialising benchmark report for scenario '{config.scenario}'")
         report = BenchmarkReport(config=config)
-        report.stats_settings = StatsSettings.from_config(_statistics_config(outputs_cfg))
+        report.stats_settings = stats_settings
         for message in getattr(report, "aggregate_metric_messages", []):
             _log(message)
         for warning in getattr(report, "aggregate_metric_warnings", []):

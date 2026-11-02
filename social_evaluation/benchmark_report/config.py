@@ -31,6 +31,9 @@ class BenchmarkConfig:
     use_tex: bool = True
     discard_failed_metrics: bool = True
     quality_result_cmap: str = "Paired"
+    navigator_cmap: str = "Paired"
+    # Explicit colours by navigator key or display label; override the cmap.
+    navigator_colors: Dict[str, str] = field(default_factory=dict)
     metric_discard_failed: Dict[str, bool] = field(default_factory=dict)
     metric_group_aggregates: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     metric_group_plot_metrics: Dict[str, List[str]] = field(default_factory=dict)

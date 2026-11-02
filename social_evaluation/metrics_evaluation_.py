@@ -14,9 +14,16 @@ import re
 import numpy as np
 from tqdm import tqdm
 
-# Default Likert survey dimensions aggregated (mean over participants) per run.
-# Override via the ``survey_fields`` key in the metrics YAML.
-SURVEY_FIELDS = ["safety", "friendliness", "naturalness", "avoidance_foresight"]
+# Default Likert survey dimensions (the real_test_survey questions), aggregated
+# (mean over participants) per run. Override via ``survey_fields`` in the metrics YAML.
+SURVEY_FIELDS = ["safety", "friendliness", "naturalness", "avoidance_foresight",
+                 "legibility", "overall"]
+
+# Outcome columns carried onto the metrics as they are: the identifiers that
+# repeated-measures tests pair runs by (benchmark_report statistics.block/cohort).
+# real_test writes session_id; gazebo_test the pedestrian draw of each episode.
+# Override via ``outcome_columns`` in the metrics YAML.
+OUTCOME_COLUMNS = ["session_id", "ped_seed", "ped_draw_index", "ped_draw", "ped_models"]
 
 # How a fleet's per-robot values of a single-robot metric become the fleet
 # value reported under the metric's own name: the worst robot for distances
@@ -249,24 +256,31 @@ def _aggregate_survey(raw: Any, survey_fields: List[str]) -> Dict[str, float]:
     return means
 
 
+def _outcome_files(outcomes_path: Path) -> List[Path]:
+    if outcomes_path.is_dir():
+        return sorted(outcomes_path.rglob("*_outcomes.csv"))
+    return [outcomes_path]
+
+
 def load_outcomes(
-    outcomes_path: Path, survey_fields: List[str] = SURVEY_FIELDS
+    outcomes_path: Path,
+    survey_fields: List[str] = SURVEY_FIELDS,
+    outcome_columns: List[str] = OUTCOME_COLUMNS,
 ) -> pd.DataFrame:
-    """Load ``result`` and aggregated survey scores from ``*_outcomes.csv`` file(s).
+    """Load ``result``, aggregated survey scores and the ``outcome_columns``
+    present from ``*_outcomes.csv`` file(s).
 
     :param outcomes_path: Directory (searched recursively) or a single CSV file
     :param survey_fields: Likert question ids to aggregate (mean per run)
+    :param outcome_columns: Columns copied as they are when a file has them
     :return: One row per run, keyed by (experiment_tag, algorithm, run)
     """
-    if outcomes_path.is_dir():
-        csv_files = sorted(outcomes_path.rglob("*_outcomes.csv"))
-    else:
-        csv_files = [outcomes_path]
     rows: List[Dict[str, Any]] = []
-    for csv_file in csv_files:
+    for csv_file in _outcome_files(outcomes_path):
         outcomes_df = pd.read_csv(csv_file)
         # Match the benchmark loader convention: algorithm comes from the filename.
         algorithm = csv_file.stem.replace("_outcomes", "")
+        present = [c for c in outcome_columns if c in outcomes_df.columns]
         for _, row in outcomes_df.iterrows():
             record: Dict[str, Any] = {
                 "experiment_tag": str(row["experiment_tag"]),
@@ -274,9 +288,65 @@ def load_outcomes(
                 "run": int(row["run_id"]),
                 "result": row.get("result"),
             }
+            record.update({c: row[c] for c in present})
             record.update(_aggregate_survey(row.get("survey_responses"), survey_fields))
             rows.append(record)
     return pd.DataFrame(rows)
+
+
+def load_survey_responses(
+    outcomes_path: Path, survey_fields: List[str] = SURVEY_FIELDS
+) -> pd.DataFrame:
+    """One row per participant response, from the ``survey_responses`` column of
+    ``*_outcomes.csv`` file(s) (real_test folds each run's responses there).
+
+    :return: experiment_tag, algorithm, run, result, session_id, participant_id
+        and a numeric ``survey_<field>`` per Likert field; empty without responses
+    """
+    rows: List[Dict[str, Any]] = []
+    for csv_file in _outcome_files(outcomes_path):
+        outcomes_df = pd.read_csv(csv_file)
+        if "survey_responses" not in outcomes_df.columns:
+            continue
+        algorithm = csv_file.stem.replace("_outcomes", "")
+        for _, row in outcomes_df.iterrows():
+            raw = row.get("survey_responses")
+            try:
+                responses = json.loads(raw) if isinstance(raw, str) and raw.strip() else []
+            except json.JSONDecodeError:
+                responses = []
+            for response in responses:
+                session = response.get("session_id") or row.get("session_id")
+                record: Dict[str, Any] = {
+                    "experiment_tag": str(row["experiment_tag"]),
+                    "algorithm": algorithm,
+                    "run": int(row["run_id"]),
+                    "result": row.get("result"),
+                    "session_id": None if pd.isna(session) else session,
+                    "participant_id": response.get("participant_id"),
+                }
+                for field in survey_fields:
+                    record[f"survey_{field}"] = pd.to_numeric(
+                        response.get(field), errors="coerce")
+                rows.append(record)
+    return pd.DataFrame(rows)
+
+
+def expand_survey(results: pd.DataFrame, survey: pd.DataFrame) -> pd.DataFrame:
+    """The participant responses of the evaluated runs, named like the metrics
+    (``experiment`` as in ``results``), one row per response: the input of
+    per-participant tests (benchmark_report ``block: participant_id``).
+
+    Kept apart from the per-run metrics -- the benchmark loader reads every file
+    under its root_dir, and mixing the two would count each run once per response.
+    """
+    if results.empty or survey.empty:
+        return pd.DataFrame()
+    runs = results[["experiment", "algorithm", "run"]].copy()
+    runs["experiment_tag"] = runs["experiment"].astype(str).str.split("/").str[-1]
+    runs["run"] = runs["run"].astype(int)
+    expanded = runs.merge(survey, on=["experiment_tag", "algorithm", "run"], how="inner")
+    return expanded.drop(columns=["experiment_tag"]).reset_index(drop=True)
 
 
 def merge_outcomes(results: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataFrame:
@@ -349,6 +419,14 @@ def main():
         help="Directory or CSV with *_outcomes.csv to merge (result + survey means) "
         "onto the metrics",
     )
+    parser.add_argument(
+        "--survey-output-dir",
+        type=Path,
+        default=None,
+        help="With --outcomes: also write one row per participant survey response "
+        "(participant_id, session_id, survey_<field>) per input, under this directory "
+        "(a separate benchmark_report root_dir)",
+    )
 
     # Exactly one data source is required: a single pickle or a directory to scan.
     input_group = parser.add_mutually_exclusive_group(required=True)
@@ -388,13 +466,21 @@ def main():
         metrics = yaml.safe_load(file)
 
     outcomes = None
+    survey = None
+    if args.survey_output_dir is not None and args.outcomes is None:
+        parser.error("--survey-output-dir needs --outcomes (the responses live there).")
     if args.outcomes is not None:
         if not args.outcomes.exists():
             parser.error(f"Outcomes path {args.outcomes} does not exist.")
         survey_fields = metrics.get("survey_fields") or SURVEY_FIELDS
-        outcomes = load_outcomes(args.outcomes, survey_fields)
+        outcome_columns = metrics.get("outcome_columns") or OUTCOME_COLUMNS
+        outcomes = load_outcomes(args.outcomes, survey_fields, outcome_columns)
         if outcomes.empty:
             print(f"Warning: no *_outcomes.csv rows found under {args.outcomes}")
+        if args.survey_output_dir is not None:
+            survey = load_survey_responses(args.outcomes, survey_fields)
+            if survey.empty:
+                print(f"Warning: no survey responses found under {args.outcomes}")
 
     def default_output(data_file: Path) -> Path:
         """Output path when no explicit --output-file is given."""
@@ -445,6 +531,17 @@ def main():
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, "wb") as file:
             pickle.dump(results, file)
+        if survey is not None:
+            expanded = expand_survey(results, survey)
+            if expanded.empty:
+                continue
+            relative = (output_file.relative_to(args.base_output_dir)
+                        if args.base_output_dir is not None else Path(output_file.name))
+            survey_file = args.survey_output_dir / relative
+            print(f"Saving {len(expanded)} survey responses to {survey_file}")
+            survey_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(survey_file, "wb") as file:
+                pickle.dump(expanded, file)
 
 
 if __name__ == "__main__":

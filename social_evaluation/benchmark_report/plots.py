@@ -9,9 +9,11 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
+    Union,
     cast,
 )
 import matplotlib.pyplot as plt
@@ -26,6 +28,7 @@ from social_evaluation.benchmark_report.utils import (
 )
 
 from .config import BenchmarkConfig
+from .stats import stat_symbol
 
 try:  # pragma: no cover - optional dependency guard
     from statannotations.Annotator import Annotator as _Annotator
@@ -278,7 +281,7 @@ class PlottingMixin:
     def plot_metric_distributions(
         self,
         kind: str,
-        cmap_name: str = "Paired",
+        cmap_name: Optional[str] = None,
         rows: int = 0,
         n_cols: int = 0,
         font_sizes: Optional[Dict[str, int]] = None,
@@ -298,15 +301,30 @@ class PlottingMixin:
         stat_baseline: Optional[str] = None,
         highlight_baseline: bool = False,
         highlight_baseline_label: str = "Ours",
+        showfliers: Union[bool, Mapping[str, bool]] = False,
+        swarm: bool = False,
+        swarm_size: float = 12.0,
+        swarm_color: str = "black",
+        swarm_alpha: float = 0.8,
+        episode_cols: int = 1,
+        panel_title: str = "metric",
+        bar_estimator: str = "mean",
+        bar_errorbar: Optional[str] = "sd",
+        bar_errorbar_level: Optional[float] = None,
+        bar_capsize: float = 0.2,
+        ylim: Union[None, Sequence[Optional[float]], Mapping[Any, Sequence[Optional[float]]]] = None,
+        sharey: Union[None, bool, str, Sequence[int]] = None,
     ) -> None:
-        """Plot distribution summaries (box or violin) for each metric group.
+        """Plot distribution summaries (box, violin or bar) for each metric group.
 
         Parameters
         ----------
         kind : str
-            Plot type: ``"box"`` or ``"violin"``.
+            Plot type: ``"box"``, ``"violin"`` or ``"bar"`` (one bar per
+            navigator at the *bar_estimator* value, with error bars).
         cmap_name : str
-            Colour-map name (unused but kept for API compat).
+            Colour-map name for the navigators.  ``None`` (default) uses
+            the report-wide ``navigator_cmap``.
         rows : int
             Maximum number of episode rows per figure.  ``0`` (default)
             means all episodes in a single figure.
@@ -388,13 +406,64 @@ class PlottingMixin:
         highlight_baseline_label : str
             Text shown above the baseline box/violin when
             *highlight_baseline* is ``True``.  Default is ``"Ours"``.
+        showfliers : bool or mapping
+            Draw outlier points beyond the whiskers of box plots.  A bool
+            applies to every metric; a ``{metric_key: bool}`` mapping sets
+            it per metric (metrics not listed: ``False``).  Default is
+            ``False``.  Ignored for violin plots, and when *swarm* is on
+            (the swarm already shows every point).
+        swarm : bool
+            Overlay a swarm plot (one point per run, no overlap) on the
+            box/violin.  The figure is saved with a ``_swarm`` suffix so
+            it does not overwrite the plain one.  Default is ``False``.
+        swarm_size : float
+            Swarm marker size in points.  Default is ``12``.
+        swarm_color : str
+            Swarm marker colour.  Default is ``"black"``.
+        swarm_alpha : float
+            Swarm marker opacity.  Default is ``0.8``.
+        episode_cols : int
+            Episodes placed side by side in each grid row.  Default is
+            ``1`` (one episode per row).  With *rows* > 0 a figure holds
+            ``rows * episode_cols`` episodes.
+        panel_title : str
+            Subplot title: ``"metric"`` (default), ``"episode"`` or
+            ``"episode_metric"`` (``"<episode>: <metric>"``).
+        bar_estimator : str
+            Bar height: ``"mean"`` (default) or ``"median"``.
+        bar_errorbar : str or None
+            Error bars: ``"sd"`` (default), ``"se"``, ``"ci"`` (bootstrap),
+            ``"pi"`` (percentile interval) or ``None``.
+        bar_errorbar_level : float, optional
+            Width of the error bars: the interval in percent for
+            ``"ci"``/``"pi"``, the multiplier for ``"sd"``/``"se"``.
+            ``None`` (default) uses seaborn's (95 / 1).
+        bar_capsize : float
+            Error-bar cap width as a fraction of the bar.  Default ``0.2``.
+        ylim : [min, max] or mapping, optional
+            Y-axis limits.  A ``[min, max]`` pair applies to every metric; a
+            ``{metric_key: [min, max]}`` mapping sets them per metric, and
+            integer keys set them per metric row of an episode (``{2: ...}``:
+            second row, 1-based; a metric key wins over its row).  Unlisted
+            metrics: automatic.  ``None`` on either side keeps that side
+            automatic.  Baseline stars may still raise the top to fit.
+            Default ``None`` (automatic).
+        sharey : bool, str or list of int, optional
+            Give panels one common y range (the union of their own):
+            ``"all"`` (or ``True``) every panel of the figure, ``"row"``
+            each grid row, a list of metric rows (``[2]``, 1-based) only
+            those grid rows.  Default ``None`` (independent axes).
         """
 
-        fs = {**self._DEFAULT_DIST_FONT_SIZES, **(font_sizes or {})}
+        fs ={**self._DEFAULT_DIST_FONT_SIZES, **(font_sizes or {})}
 
         output_path = Path(self.output_dir_figures())
         output_path.mkdir(parents=True, exist_ok=True)
-        palette = self.navigator_palette
+        palette = (
+            self.get_navigator_palette(cmap_name)
+            if cmap_name
+            else self.navigator_palette
+        )
         use_baseline_stars = annotate_stats and stat_annotation_mode == "baseline_stars"
         _do_highlight = highlight_baseline and use_baseline_stars and stat_baseline
         legend_handles = [
@@ -456,7 +525,10 @@ class PlottingMixin:
             return
 
         # Determine rows-per-figure: 0 means all in one figure
-        rows_per_fig = rows if rows > 0 else len(experiment_order)
+        episode_cols = max(1, episode_cols)
+        rows_per_fig = (
+            rows * episode_cols if rows > 0 else len(experiment_order)
+        )
         # Split experiment_order into pages
         pages: list[list[str]] = [
             experiment_order[i : i + rows_per_fig]
@@ -477,23 +549,34 @@ class PlottingMixin:
 
             for page_idx, page_experiments in enumerate(pages):
                 n_ep = len(page_experiments)
-                grid_rows = n_ep * metric_rows_per_ep
+                ep_cols = min(episode_cols, n_ep)
+                grid_rows = math.ceil(n_ep / ep_cols) * metric_rows_per_ep
+                grid_cols = ep_cols * cols
                 fig, axes = plt.subplots(
                     grid_rows,
-                    cols,
-                    figsize=(cols * 15, grid_rows * 15),
+                    grid_cols,
+                    figsize=(grid_cols * 15, grid_rows * 15),
                     sharex=False,
                 )
-                axes = np.array(axes).reshape(grid_rows, cols)
+                axes = np.array(axes).reshape(grid_rows, grid_cols)
+                # Episode slots left empty in the last grid row
+                for empty_ep in range(n_ep, math.ceil(n_ep / ep_cols) * ep_cols):
+                    row0 = (empty_ep // ep_cols) * metric_rows_per_ep
+                    col0 = (empty_ep % ep_cols) * cols
+                    for ax in axes[row0 : row0 + metric_rows_per_ep, col0 : col0 + cols].flat:
+                        ax.axis("off")
+                drawn_axes: List[Tuple[int, int, Any]] = []  # (grid row, metric row, ax)
                 for ep_idx, environment in enumerate(page_experiments):
+                    ep_row0 = (ep_idx // ep_cols) * metric_rows_per_ep
+                    ep_col0 = (ep_idx % ep_cols) * cols
                     for m_idx, metric_key in enumerate(metric_keys):
                         env_metrics = env_metrics_cache.get(metric_key, {}).get(
                             environment, pd.DataFrame()
                         )
                         local_row = m_idx // cols
                         local_col = m_idx % cols
-                        grid_row = ep_idx * metric_rows_per_ep + local_row
-                        target_ax = axes[grid_row, local_col]
+                        grid_row = ep_row0 + local_row
+                        target_ax = axes[grid_row, ep_col0 + local_col]
                         plot_data = self._prepare_distribution_plot_data(
                             env_metrics, metric_key
                         )
@@ -508,6 +591,11 @@ class PlottingMixin:
                         if not plot_order:
                             target_ax.axis("off")
                             continue
+                        metric_showfliers = (
+                            bool(showfliers.get(metric_key, False))
+                            if isinstance(showfliers, Mapping)
+                            else bool(showfliers)
+                        )
                         if kind == "box":
                             sns.boxplot(
                                 data=plot_data,
@@ -518,7 +606,7 @@ class PlottingMixin:
                                 hue_order=plot_order,
                                 palette=cast(Any, palette),
                                 ax=target_ax,
-                                showfliers=False,
+                                showfliers=metric_showfliers and not swarm,
                             )
                             self._apply_box_alpha(target_ax, self.config.alpha)
                             if connect_medians:
@@ -538,6 +626,28 @@ class PlottingMixin:
                                     ax=target_ax,
                                 )
 
+                        elif kind == "bar":
+                            errorbar: Any = (
+                                bar_errorbar
+                                if bar_errorbar is None or bar_errorbar_level is None
+                                else (bar_errorbar, bar_errorbar_level)
+                            )
+                            sns.barplot(
+                                data=plot_data,
+                                x="algorithm",
+                                order=plot_order,
+                                y=metric_key,
+                                hue="algorithm",
+                                hue_order=plot_order,
+                                palette=cast(Any, palette),
+                                estimator=bar_estimator,
+                                errorbar=errorbar,
+                                capsize=bar_capsize,
+                                err_kws={"color": "black", "linewidth": 2},
+                                edgecolor="black",
+                                ax=target_ax,
+                            )
+                            self._apply_box_alpha(target_ax, self.config.alpha)
                         else:
                             sns.violinplot(
                                 data=plot_data,
@@ -549,6 +659,26 @@ class PlottingMixin:
                                 palette=cast(Any, palette),
                                 ax=target_ax,
                             )
+                        if swarm:
+                            sns.swarmplot(
+                                data=plot_data,
+                                x="algorithm",
+                                order=plot_order,
+                                y=metric_key,
+                                color=swarm_color,
+                                alpha=swarm_alpha,
+                                size=swarm_size,
+                                zorder=5,
+                                ax=target_ax,
+                            )
+                        metric_ylim = (
+                            ylim.get(metric_key, ylim.get(local_row + 1))
+                            if isinstance(ylim, Mapping)
+                            else ylim
+                        )
+                        if metric_ylim is not None:
+                            target_ax.set_ylim(*metric_ylim)
+                        drawn_axes.append((grid_row, local_row + 1, target_ax))
                         # -- Statistical annotations --
                         if annotate_stats:
                             if use_baseline_stars:
@@ -582,6 +712,7 @@ class PlottingMixin:
                                     y=metric_key,
                                     order=plot_order,
                                     kind=kind,
+                                    showfliers=metric_showfliers and not swarm,
                                     palette=palette,
                                     pairwise_df=_for_environment(_pairwise_df, environment),
                                     comparisons=stat_comparisons,
@@ -597,9 +728,12 @@ class PlottingMixin:
                                     line_height=stat_line_height,
                                 )
 
-                        # Title: show metric name on every subplot
+                        metric_title = self._format_text(metric_labels[metric_key])
                         target_ax.set_title(
-                            self._format_text(metric_labels[metric_key]),
+                            {
+                                "episode": environment,
+                                "episode_metric": f"{environment}: {metric_title}",
+                            }.get(panel_title, metric_title),
                             fontsize=fs["title"],
                         )
                         # Episode label on the first column of every
@@ -621,14 +755,28 @@ class PlottingMixin:
 
                     # Hide any leftover axes in the last metric-row
                     # of this episode (when metrics don't fill a full row)
-                    last_metric_row = (
-                        ep_idx * metric_rows_per_ep + metric_rows_per_ep - 1
-                    )
+                    last_metric_row = ep_row0 + metric_rows_per_ep - 1
                     filled_in_last = total_metrics % cols or cols
                     for empty_col in range(filled_in_last, cols):
-                        axes[last_metric_row, empty_col].axis("off")
+                        axes[last_metric_row, ep_col0 + empty_col].axis("off")
 
-                suffix = f"_page{page_idx + 1}" if len(pages) > 1 else ""
+                if sharey:
+                    share_groups: Dict[Any, List[Any]] = {}
+                    for g_row, m_row, ax in drawn_axes:
+                        if sharey is True or sharey == "all":
+                            share_groups.setdefault("all", []).append(ax)
+                        elif sharey == "row" or (
+                            not isinstance(sharey, str) and m_row in sharey
+                        ):
+                            share_groups.setdefault(g_row, []).append(ax)
+                    for group in share_groups.values():
+                        lows, highs = zip(*(ax.get_ylim() for ax in group))
+                        for ax in group:
+                            ax.set_ylim(min(lows), max(highs))
+
+                suffix = ("_swarm" if swarm else "") + (
+                    f"_page{page_idx + 1}" if len(pages) > 1 else ""
+                )
                 output_file = (
                     output_path / f"{group_key}_{kind}plots_by_navigator{suffix}.png"
                 )
@@ -983,14 +1131,12 @@ class PlottingMixin:
             if y in stats_summary.index:
                 row = stats_summary.loc[y]
                 test_name = str(row.get("test", "anova")).title()
-                symbol, dof = (
-                    ("H", f"{row['df1']:g}")
-                    if row.get("test") in ("kruskal", "permutation")
-                    else ("F", f"{row['df1']:g},{row['df2']:.1f}")
-                )
+                symbol, two_dof = stat_symbol(str(row.get("test")))
+                dof = (f"({row['df1']:g},{row['df2']:.1f})" if two_dof
+                       else "" if pd.isna(row["df1"]) else f"({row['df1']:g})")
                 caption_parts.append(
                     f"[{environment} | {y}] {test_name}: "
-                    f"{symbol}({dof})={row['statistic']:.2f}, "
+                    f"{symbol}{dof}={row['statistic']:.2f}, "
                     f"p={row['p_value']:.4f}, p_adj={row['p_adjusted']:.4f}."
                 )
 
@@ -1017,6 +1163,7 @@ class PlottingMixin:
         y: str,
         order: List[str],
         kind: str,
+        showfliers: bool,
         palette: Any,
         pairwise_df: Optional[pd.DataFrame],
         comparisons: Optional[List[Tuple[str, str]]],
@@ -1086,7 +1233,7 @@ class PlottingMixin:
                 "palette": palette,
             }
             if kind == "box":
-                plot_params["showfliers"] = False
+                plot_params["showfliers"] = showfliers
 
             annotator = _Annotator(
                 ax=ax,
@@ -1133,7 +1280,7 @@ class PlottingMixin:
                 "palette": palette,
             }
             if kind == "box":
-                plot_params["showfliers"] = False
+                plot_params["showfliers"] = showfliers
 
             annotator = _Annotator(
                 ax=ax,

@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 import pandas as pd
 
+from .stats import stat_symbol
+
 
 TEX_PREAMBLE = r"""\documentclass[11pt,a4paper]{article}
 \usepackage[T1]{fontenc}
@@ -331,10 +333,15 @@ def _append_stats_sections(lines: List[str], scenario_dir: Path, assets: Dict[st
     if not significant.empty:
         rows = []
         for r in significant.itertuples():
-            stat = (rf"$H({r.df1:g})={r.statistic:.2f}$" if r.test in ("kruskal", "permutation")
-                    else rf"$F({r.df1:g},{r.df2:.1f})={r.statistic:.2f}$")
-            rows.append([_tex(r.episode_group), _tex(r.metric_label), r.test, stat,
-                         _p(r.p_adjusted), rf"{r.effect_size:.2f} ({r.effect_name.replace('_', '')})"])
+            symbol, two_dof = stat_symbol(r.test)
+            symbol = symbol.replace("chi2", r"\chi^2").replace("Wald ", r"\mathrm{Wald}\ ")
+            dof = (f"({r.df1:g},{r.df2:.1f})" if two_dof
+                   else "" if pd.isna(r.df1) else f"({r.df1:g})")
+            stat = rf"${symbol}{dof}={r.statistic:.2f}$"
+            effect = ("-" if pd.isna(r.effect_size)
+                      else rf"{r.effect_size:.2f} ({str(r.effect_name).replace('_', ' ')})")
+            rows.append([_tex(r.episode_group), _tex(r.metric_label), _tex(r.test), stat,
+                         _p(r.p_adjusted), effect])
         lines += _longtable(["Group", "Metric", "Test", "Statistic", "$p_{adj}$", "Effect"], rows,
                             "Omnibus tests significant after correction.")
     pairwise = assets.get("pairwise")

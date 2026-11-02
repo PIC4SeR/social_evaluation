@@ -103,8 +103,8 @@ The YAML file has two top-level mappings, `benchmark` (what to evaluate) and
 | --- | --- | --- | --- |
 | `root_dir` | yes | – | Metrics directory. A relative path is resolved against the base output directory (see [Pitfalls](#pitfalls)). |
 | `scenario` | yes | – | One scenario entry or a list of them. Each scenario gets its own report directory. |
-| `navigators` | yes | – | Navigator keys to include, in display order. Can be overridden per scenario. |
-| `navigator_names` | yes | – | `key: display label`. A missing entry falls back to the raw key (a warning is logged). Labels may contain LaTeX. |
+| `navigators` | yes | – | Navigators to include, in display order: a plain key, or `- KEY: {name: ..., color: ...}` (both optional) to keep label and colour with the navigator. Can be overridden per scenario. |
+| `navigator_names` | no | – | `key: display label` (alternative to `name` in `navigators`, which wins on conflict). A missing entry falls back to the raw key (a warning is logged). Labels may contain LaTeX. |
 | `metric_groups` | yes | – | See [Metric groups](#metric-groups). |
 | `intrusion_labels` | yes | – | See [Intrusion labels](#intrusion-labels). Can be `{}`. |
 | `episodes` | no | `[]` | Episode keys shown as individual rows/panels. Can be overridden per scenario. |
@@ -115,6 +115,8 @@ The YAML file has two top-level mappings, `benchmark` (what to evaluate) and
 | `alpha` | no | `0.8` | Fill transparency for bars and boxes. |
 | `use_tex` | no | `true` | Render plot text with LaTeX (needs a TeX installation). With `false`, LaTeX markup is stripped from labels. |
 | `intrusion_cmap` | no | `Paired` | Colormap for the outcome and intrusion categories. |
+| `navigator_colors` | no | `{}` | Alternative to `color` in `navigators` (which wins on conflict). Explicit colour per navigator, keyed by navigator key or display label (`{SFM: '#33a02c', DWA: tab:blue}`); overrides the colormap, unlisted navigators keep it. |
+| `navigator_cmap` | no | `Paired` | Colormap for the navigators in every plot (a `plot_metric_distributions` entry can override it with `cmap_name`). |
 
 ### Scenarios, episodes and episode groups
 
@@ -529,11 +531,31 @@ and one violin). `true` alone draws box plots with the default options.
 
 ```yaml
 plot_metric_distributions:
-  - kind: box                     # box | violin
+  - kind: box                     # box | violin | bar
+    cmap_name: Set2               # navigator colours (default: benchmark navigator_cmap)
     n_rows: 1                     # episodes per figure; more → _page<N> files (0: all)
     n_cols: 2                     # metric panels per row (0: all in one row)
+    episode_cols: 1               # episodes side by side per grid row (n_rows then
+                                  # counts episode rows: n_rows × episode_cols per figure)
+    panel_title: metric           # metric | episode | episode_metric
+    ylim: [0.75, 5.25]            # y limits for every metric, or per metric
+                                  # {Smoothness: [1, 5]}, or per metric row of an
+                                  # episode {2: [1, 5]} (1-based); null side = automatic
+    sharey: none                  # common y range: all | row | [2] (only those metric
+                                  # rows, each grid row separately) | none
+    bar:                          # kind: bar only (seaborn.barplot)
+      estimator: mean             #   bar height: mean | median
+      errorbar: sd                #   sd | se | ci (bootstrap) | pi (percentile) | none
+      # level: 95                 #   optional width: ci/pi in percent (default 95),
+                                  #   sd/se multiplier (default 1; level: 2 → ±2 sd)
+      capsize: 0.2                #   error-bar cap width (fraction of the bar)
     show_episode_ylabel: true     # episode name as y-label of the first column
     connect_medians: false        # join navigator medians (box only)
+    showfliers: false             # outlier points (box only): true/false, or per metric
+                                  # {time_to_reach_goal: true}, unlisted metrics false
+    swarm: false                  # overlay one point per run (box and violin): true, or
+                                  # {size: 12, color: black, alpha: 0.8}; saved as
+                                  # *_swarm[_page<N>].png, hides fliers
     font_sizes: {title: 40, axis_label: 40, tick_label: 40, legend: 40, legend_ncol: 4}
     # statistical annotations
     annotate_stats: true
